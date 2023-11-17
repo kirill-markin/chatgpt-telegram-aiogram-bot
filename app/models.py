@@ -22,9 +22,22 @@ class User(Base):
 
 def add_user(username, role, is_allowed):
     session = Session()
-    new_user = User(username=username, role=role, is_allowed=is_allowed)
-    session.add(new_user)
-    session.commit()
+    
+    # Проверяем, существует ли пользователь с заданным именем
+    existing_user = session.query(User).filter_by(username=username).first()
+    
+    if existing_user is None:
+        new_user = User(username=username, role=role, is_allowed=is_allowed)
+        session.add(new_user)
+        session.commit()
+        print(f"User {username} added successfully.")
+    else:
+        print(f"User {username} already exists.")
+    
+    session.close()
+
+
+
 
 def get_all_users():
     session = Session()
@@ -41,8 +54,10 @@ class Message(Base):
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
     user = relationship('User', back_populates='messages')
 
-
-
+# Вызываем add_user только если пользователи еще не существуют
+if not get_all_users():
+    add_user('noodlecode', 'user', True)
+    add_user('kirmark', 'user', True)
 # Пример получения всех пользователей и вывода их данных
 all_users = get_all_users()
 for user in all_users:
