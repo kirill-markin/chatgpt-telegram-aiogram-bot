@@ -1,0 +1,6 @@
+openai
+pydub
+aiogram
+tiktoken
+sqlalchemy
+python-dotenv
