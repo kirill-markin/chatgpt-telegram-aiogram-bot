@@ -55,12 +55,12 @@ class Message(Base):
     user = relationship('User', back_populates='messages')
 
 # Вызываем add_user только если пользователи еще не существуют
-if not get_all_users():
+"""if not get_all_users():
     add_user('noodlecode', 'user', True)
-    add_user('kirmark', 'user', True)
+    add_user('kirmark', 'user', True)"""
 # Пример получения всех пользователей и вывода их данных
-all_users = get_all_users()
+"""all_users = get_all_users()
 for user in all_users:
-    print(f"User ID: {user.id}, Username: {user.username}, Role: {user.role}, is_allowed: {user.is_allowed}")
+    print(f"User ID: {user.id}, Username: {user.username}, Role: {user.role}, is_allowed: {user.is_allowed}")"""
 
 Base.metadata.create_all(bind=engine)
