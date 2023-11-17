@@ -207,11 +207,6 @@ async def voice_message_handler(message: types.Message):
     userid = message.from_user.username
     message.text = user_message
 
-    if userid not in messages:
-        messages[userid] = []
-    messages[userid].append({"role": "user", "content": user_message})
-    messages[userid].append({"role": "user",
-                            "content": f"chat: {message.chat} Now {time.strftime('%d/%m/%Y %H:%M:%S')} user: {message.from_user.first_name} message: {message.text}"})
     logging.info(f'{userid}: {message.text}')
 
     should_respond = not message.reply_to_message or message.reply_to_message.from_user.id == bot.id
@@ -336,14 +331,6 @@ async def echo_msg(message: types.Message):
     try:
         user_message = message.text
         userid = message.from_user.username
-
-        if userid not in messages:
-            messages[userid] = []
-        messages[userid].append({"role": "user", "content": user_message})
-        messages[userid].append({"role": "user",
-                                 "content": f"chat: {message.chat} Now {time.strftime('%d/%m/%Y %H:%M:%S')} user: {message.from_user.first_name} message: {message.text}"})
-        logging.info(f'{userid}: {user_message}')
-
         should_respond = not message.reply_to_message or message.reply_to_message.from_user.id == bot.id
 
         if should_respond:
