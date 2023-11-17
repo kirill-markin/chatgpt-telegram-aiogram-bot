@@ -1,6 +1,6 @@
 openai
 pydub
 aiogram
-tiktoken
+tiktoken==0.5.1
 sqlalchemy
 python-dotenv
