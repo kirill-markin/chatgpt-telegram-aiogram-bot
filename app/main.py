@@ -206,16 +206,32 @@ async def voice_message_handler(message: types.Message):
     user_message = transcripted_text
     userid = message.from_user.username
     message.text = user_message
-
-    logging.info(f'{userid}: {message.text}')
-
-    should_respond = not message.reply_to_message or message.reply_to_message.from_user.id == bot.id
-
-    if should_respond:
-        asyncio.create_task(process_message(message))
-    
     os.remove(ogg_filepath)
     os.remove(mp3_filepath)
+    try:
+        if userid in processing_timers:
+            user_messages[userid] += "\n" + message.text
+            return
+        
+        user_messages[userid] = message.text
+        processing_timers[userid] = asyncio.create_task(
+            asyncio.sleep(4),
+            name=f"timer_for_{userid}"
+        )
+        message.text = user_messages[userid]
+        print(message)
+        processing_timers[userid].add_done_callback(
+            lambda _: asyncio.create_task(process_user_message(message))
+        )
+    except Exception as ex:
+        if str(ex) == "context_length_exceeded":
+            language = user_languages.get(message.from_user.id, 'en')
+            await message.reply(message_templates[language]['error'])
+            await new_topic_cmd(message)
+            await echo_msg(message)
+
+    
+    
 
 @dp.callback_query_handler(lambda c: c.data in ['en', 'ru', 'ua'])
 async def process_callback(callback_query: types.CallbackQuery):
