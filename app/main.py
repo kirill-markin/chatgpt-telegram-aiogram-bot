@@ -8,11 +8,10 @@ from aiogram.utils import executor
 import time
 from config import bot_token, api_key
 from message_templates import message_templates
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import asyncio
 import tiktoken
 from models import Session
-
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
 
 from models import Session, User, Message
 
@@ -29,6 +28,15 @@ messages = {}
 user_languages = {}  
 session = Session()
 
+urlkb = InlineKeyboardMarkup(row_width=1)
+urlButton = InlineKeyboardButton(text='Kirill Markin', url='https://t.me/kirmark')
+urlkb.add(urlButton)
+
+async def setup_bot_commands(dp):
+    bot_commands = [
+        BotCommand(command="/newtopic", description="Start new topic"),
+    ]
+    await bot.set_my_commands(bot_commands)
 
 GPT_MODEL = "gpt-4-1106-preview"
 TEMPERATURE = 0.7
@@ -110,9 +118,8 @@ async def process_message(message):
         return
 
 
-    language = user_languages.get(user_id, 'en')
 
-    processing_message = await message.reply(message_templates[language]['processing'])
+    processing_message = await message.reply(message_templates['en']['processing'])
 
     encoding = tiktoken.encoding_for_model("gpt-4-1106-prewiev")
     user_message_tokens = encoding.encode(message.text)
@@ -167,13 +174,16 @@ async def send_welcome(message: types.Message):
     userid = message.from_user.username
     # Check if the user is allowed to use the bot
     if not is_user_allowed(userid):
-        await message.reply(message_templates['en']['not_allowed'])
+        await message.reply(message_templates['en']['not_allowed'], reply_markup=urlkb)
         return
     
     username = message.from_user.username
     messages[username] = []
-
+   
     await message.reply(message_templates['en']['start'])
+
+
+
 
 @dp.message_handler(content_types=[
     types.ContentType.VOICE,
@@ -185,7 +195,7 @@ async def voice_message_handler(message: types.Message):
 
     # Check if the user is allowed to use the bot
     if not is_user_allowed(userid):
-        await message.reply(message_templates['en']['not_allowed'])
+        await message.reply(message_templates['en']['not_allowed'], reply_markup=urlkb)
         return
 
     ogg_filepath = await download_voice_as_ogg(message.voice)
@@ -224,7 +234,7 @@ async def new_topic_cmd(message: types.Message):
 
     # Check if the user is allowed to use the bot
     if not is_user_allowed(userid):
-        await message.reply(message_templates['en']['not_allowed'])
+        await message.reply(message_templates['en']['not_allowed'], reply_markup=urlkb)
         return
     try:
         user_id = message.from_user.id
@@ -247,7 +257,7 @@ async def help_cmd(message: types.Message):
 
     # Check if the user is allowed to use the bot
     if not is_user_allowed(userid):
-        await message.reply(message_templates['en']['not_allowed'])
+        await message.reply(message_templates['en']['not_allowed'], reply_markup=urlkb)
         return
     
     await message.reply(message_templates['en']['help'])
@@ -259,7 +269,7 @@ async def about_cmd(message: types.Message):
 
     # Check if the user is allowed to use the bot
     if not is_user_allowed(userid):
-        await message.reply(message_templates['en']['not_allowed'])
+        await message.reply(message_templates['en']['not_allowed'], reply_markup=urlkb)
         return
     
     await message.reply(message_templates['en']['about'])
@@ -282,7 +292,7 @@ async def echo_msg(message: types.Message):
     userid = message.from_user.username
     
     if not is_user_allowed(userid):
-        await message.reply(message_templates['en']['not_allowed'])
+        await message.reply(message_templates['en']['not_allowed'], reply_markup=urlkb)
         return
     
     try:
@@ -325,4 +335,4 @@ async def handle_other_messages(message: types.Message):
     await message.reply(message_templates['en']['not_supported'])
 
 if __name__ == '__main__':
-    executor.start_polling(dp, skip_updates=True)
+    executor.start_polling(dp, skip_updates=True, on_startup=setup_bot_commands)
