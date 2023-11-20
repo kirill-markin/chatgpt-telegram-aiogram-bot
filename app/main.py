@@ -6,13 +6,12 @@ import uuid
 from aiogram import Bot, Dispatcher, types
 from aiogram.utils import executor
 import time
-from config import bot_token, api_key, db_url
+from config import bot_token, api_key
 from message_templates import message_templates
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import asyncio
 import tiktoken
 from models import Session
-
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
 
 from models import Session, User, Message
 
@@ -29,6 +28,15 @@ messages = {}
 user_languages = {}  
 session = Session()
 
+urlkb = InlineKeyboardMarkup(row_width=1)
+urlButton = InlineKeyboardButton(text='Kirill Markin', url='https://t.me/kirmark')
+urlkb.add(urlButton)
+
+async def setup_bot_commands(dp):
+    bot_commands = [
+        BotCommand(command="/newtopic", description="Start new topic"),
+    ]
+    await bot.set_my_commands(bot_commands)
 
 GPT_MODEL = "gpt-4-1106-preview"
 TEMPERATURE = 0.7
@@ -81,15 +89,6 @@ def convert_ogg_to_mp3(ogg_filepath):
     audio.export(mp3_filepath, format="mp3")
     return mp3_filepath
 
-def generate_response(text):
-    response = openai.ChatCompletion.create(
-        model= GPT_MODEL,
-        messages=[
-            {"role": "user", "content": text}
-        ]
-    )
-    answer = response["choices"][0]["message"]["content"]
-    return answer
 
 def is_user_allowed(username):
     session = Session()
@@ -119,9 +118,8 @@ async def process_message(message):
         return
 
 
-    language = user_languages.get(user_id, 'en')
 
-    processing_message = await message.reply(message_templates[language]['processing'])
+    processing_message = await message.reply(message_templates['en']['processing'])
 
     encoding = tiktoken.encoding_for_model("gpt-4-1106-prewiev")
     user_message_tokens = encoding.encode(message.text)
@@ -171,21 +169,21 @@ async def process_message(message):
     await bot.delete_message(chat_id=processing_message.chat.id, message_id=processing_message.message_id)
 
 
-@dp.message_handler(commands=['start', 'help'])
+@dp.message_handler(commands=['start'])
 async def send_welcome(message: types.Message):
     userid = message.from_user.username
-    print(userid)
-    id = message.from_user.id
-    print(id)
     # Check if the user is allowed to use the bot
     if not is_user_allowed(userid):
-        await message.reply("Вам не разрешено пользоваться ботом. Обратитесь в поддержку.")
+        await message.reply(message_templates['en']['not_allowed'], reply_markup=urlkb)
         return
     
     username = message.from_user.username
     messages[username] = []
+   
+    await message.reply(message_templates['en']['start'])
 
-    await message.reply("Бот GPT Кирилла Маркина - голосовой помощник, который понимает аудиосообщения на русском языке 😊. Ответ может занять время ")
+
+
 
 @dp.message_handler(content_types=[
     types.ContentType.VOICE,
@@ -197,7 +195,7 @@ async def voice_message_handler(message: types.Message):
 
     # Check if the user is allowed to use the bot
     if not is_user_allowed(userid):
-        await message.reply("Вам не разрешено пользоваться ботом. Обратитесь в поддержку.")
+        await message.reply(message_templates['en']['not_allowed'], reply_markup=urlkb)
         return
 
     ogg_filepath = await download_voice_as_ogg(message.voice)
@@ -206,71 +204,28 @@ async def voice_message_handler(message: types.Message):
     user_message = transcripted_text
     userid = message.from_user.username
     message.text = user_message
-
-    logging.info(f'{userid}: {message.text}')
-
-    should_respond = not message.reply_to_message or message.reply_to_message.from_user.id == bot.id
-
-    if should_respond:
-        asyncio.create_task(process_message(message))
-    
     os.remove(ogg_filepath)
     os.remove(mp3_filepath)
-
-@dp.callback_query_handler(lambda c: c.data in ['en', 'ru', 'ua'])
-async def process_callback(callback_query: types.CallbackQuery):
-    
-    user_languages[callback_query.from_user.id] = callback_query.data
-    await send_message(callback_query.from_user.id, 'language_confirmation')
-    await bot.answer_callback_query(callback_query.id)
-
-
-# Create language selection keyboard
-language_keyboard = InlineKeyboardMarkup(row_width=2)
-language_keyboard.add(InlineKeyboardButton("English🇬🇧", callback_data='en'),
-                      InlineKeyboardButton("Русский🇷🇺", callback_data='ru'),)
-
-
-async def send_message(user_id, message_key):
-    language = user_languages.get(user_id, 'en')  # Default to English
-    message_template = message_templates[language][message_key]
-    await bot.send_message(user_id, message_template)
-
-
-@dp.message_handler(commands=['language'])
-async def language_cmd(message: types.Message):
-    userid = message.from_user.username
-
-    # Check if the user is allowed to use the bot
-    if not is_user_allowed(userid):
-        await message.reply("Вам не разрешено пользоваться ботом. Обратитесь в поддержку.")
-        return
-    await bot.send_message(message.chat.id, message_templates['en']['language_selection'],
-                           reply_markup=language_keyboard)
-
-
-@dp.callback_query_handler(lambda c: c.data in ['en', 'ru'])
-async def process_callback(callback_query: types.CallbackQuery):
-    user_languages[callback_query.from_user.id] = callback_query.data
-    await bot.answer_callback_query(callback_query.id)
-
-
-
-@dp.message_handler(commands=['start'])
-async def start_cmd(message: types.Message):
-    userid = message.from_user.username
-
-    # Check if the user is allowed to use the bot
-    if not is_user_allowed(userid):
-        await message.reply("Вам не разрешено пользоваться ботом. Обратитесь в поддержку.")
-        return
     try:
-        username = message.from_user.username
-        messages[username] = []
-        language = user_languages.get(message.from_user.id, 'en')  # Get the selected language
-        await message.reply(message_templates[language]['start'])  # Retrieve the correct message based on the language
-    except Exception as e:
-        logging.error(f'Error in start_cmd: {e}')
+        if userid in processing_timers:
+            user_messages[userid] += "\n" + message.text
+            return
+        
+        user_messages[userid] = message.text
+        processing_timers[userid] = asyncio.create_task(
+            asyncio.sleep(4),
+            name=f"timer_for_{userid}"
+        )
+        message.text = user_messages[userid]
+        print(message)
+        processing_timers[userid].add_done_callback(
+            lambda _: asyncio.create_task(process_user_message(message))
+        )
+    except Exception as ex:
+        if str(ex) == "context_length_exceeded":
+            await message.reply(message_templates['en']['error'])
+            await new_topic_cmd(message)
+            await echo_msg(message)
 
 
 @dp.message_handler(commands=['newtopic'])
@@ -279,7 +234,7 @@ async def new_topic_cmd(message: types.Message):
 
     # Check if the user is allowed to use the bot
     if not is_user_allowed(userid):
-        await message.reply("Вам не разрешено пользоваться ботом. Обратитесь в поддержку.")
+        await message.reply(message_templates['en']['not_allowed'], reply_markup=urlkb)
         return
     try:
         user_id = message.from_user.id
@@ -287,8 +242,8 @@ async def new_topic_cmd(message: types.Message):
         if user:
             session.query(Message).filter(Message.username == userid).delete()
             session.commit()
-        language = user_languages.get(user_id, 'en')
-        await message.reply(message_templates[language]['newtopic'])
+        
+        await message.reply(message_templates['en']['newtopic'])
     except Exception as e:
         logging.error(f'Error in new_topic_cmd: {e}')
 
@@ -302,10 +257,10 @@ async def help_cmd(message: types.Message):
 
     # Check if the user is allowed to use the bot
     if not is_user_allowed(userid):
-        await message.reply("Вам не разрешено пользоваться ботом. Обратитесь в поддержку.")
+        await message.reply(message_templates['en']['not_allowed'], reply_markup=urlkb)
         return
-    language = user_languages.get(message.from_user.id, 'en')
-    await message.reply(message_templates[language]['help'])
+    
+    await message.reply(message_templates['en']['help'])
 
 
 @dp.message_handler(commands=['about'])
@@ -314,34 +269,53 @@ async def about_cmd(message: types.Message):
 
     # Check if the user is allowed to use the bot
     if not is_user_allowed(userid):
-        await message.reply("Вам не разрешено пользоваться ботом. Обратитесь в поддержку.")
+        await message.reply(message_templates['en']['not_allowed'], reply_markup=urlkb)
         return
-    language = user_languages.get(message.from_user.id, 'en')
-    await message.reply(message_templates[language]['about'])
+    
+    await message.reply(message_templates['en']['about'])
+
+user_messages = {}
+processing_timers = {}
+
+
+async def process_user_message(message):
+    userid = message.from_user.username
+    if userid in user_messages:
+        message.text = user_messages.pop(userid)
+        asyncio.create_task(process_message(message))
+
+    processing_timers.pop(userid, None)
 
 
 @dp.message_handler()
 async def echo_msg(message: types.Message):
     userid = message.from_user.username
-
-    # Check if the user is allowed to use the bot
+    
     if not is_user_allowed(userid):
-        await message.reply("Вам не разрешено пользоваться ботом. Обратитесь в поддержку.")
+        await message.reply(message_templates['en']['not_allowed'], reply_markup=urlkb)
         return
+    
     try:
-        user_message = message.text
-        userid = message.from_user.username
-        should_respond = not message.reply_to_message or message.reply_to_message.from_user.id == bot.id
-
-        if should_respond:
-            asyncio.create_task(process_message(message))
-            
-            
-
+        if userid in processing_timers:
+            # Обновить сообщение пользователя
+            user_messages[userid] += "\n" + message.text
+            return
+        
+        # Создать новое сообщение пользователя и таймер
+        user_messages[userid] = message.text
+        processing_timers[userid] = asyncio.create_task(
+            asyncio.sleep(4),
+            name=f"timer_for_{userid}"
+        )
+        message.text = user_messages[userid]
+        print(message)
+        processing_timers[userid].add_done_callback(
+            lambda _: asyncio.create_task(process_user_message(message))
+        )
+        
     except Exception as ex:
-        if ex == "context_length_exceeded":
-            language = user_languages.get(message.from_user.id, 'en')
-            await message.reply(message_templates[language]['error'])
+        if str(ex) == "context_length_exceeded":
+            await message.reply(message_templates['en']['error'])
             await new_topic_cmd(message)
             await echo_msg(message)
 
@@ -358,7 +332,7 @@ async def echo_msg(message: types.Message):
 )
 async def handle_other_messages(message: types.Message):
     # Обработка других типов сообщений (фото, документы, стикеры и т.д.)
-    await message.reply('Извините, бот пока не может обрабатывать сообщения данного типа.')
+    await message.reply(message_templates['en']['not_supported'])
 
 if __name__ == '__main__':
-    executor.start_polling(dp, skip_updates=True)
+    executor.start_polling(dp, skip_updates=True, on_startup=setup_bot_commands)
