@@ -319,31 +319,52 @@ async def about_cmd(message: types.Message):
     language = user_languages.get(message.from_user.id, 'en')
     await message.reply(message_templates[language]['about'])
 
+user_messages = {}
+processing_timers = {}
+
+
+async def process_user_message(message):
+    userid = message.from_user.username
+    if userid in user_messages:
+        message.text = user_messages.pop(userid)
+        asyncio.create_task(process_message(message))
+
+    processing_timers.pop(userid, None)
+
 
 @dp.message_handler()
 async def echo_msg(message: types.Message):
     userid = message.from_user.username
-
-    # Check if the user is allowed to use the bot
+    
     if not is_user_allowed(userid):
         await message.reply("Вам не разрешено пользоваться ботом. Обратитесь в поддержку.")
         return
+    
     try:
-        user_message = message.text
-        userid = message.from_user.username
-        should_respond = not message.reply_to_message or message.reply_to_message.from_user.id == bot.id
-
-        if should_respond:
-            asyncio.create_task(process_message(message))
-            
-            
-
+        if userid in processing_timers:
+            # Обновить сообщение пользователя
+            user_messages[userid] += "\n" + message.text
+            return
+        
+        # Создать новое сообщение пользователя и таймер
+        user_messages[userid] = message.text
+        processing_timers[userid] = asyncio.create_task(
+            asyncio.sleep(4),
+            name=f"timer_for_{userid}"
+        )
+        message.text = user_messages[userid]
+        print(message)
+        processing_timers[userid].add_done_callback(
+            lambda _: asyncio.create_task(process_user_message(message))
+        )
+        
     except Exception as ex:
-        if ex == "context_length_exceeded":
+        if str(ex) == "context_length_exceeded":
             language = user_languages.get(message.from_user.id, 'en')
             await message.reply(message_templates[language]['error'])
             await new_topic_cmd(message)
             await echo_msg(message)
+
 
 
 
