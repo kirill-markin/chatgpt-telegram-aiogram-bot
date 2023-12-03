@@ -6,7 +6,7 @@ import uuid
 from aiogram import Bot, Dispatcher, types
 from aiogram.utils import executor
 import time
-from config import bot_token, api_key
+from config import bot_token, openai_api_key
 from message_templates import message_templates
 import asyncio
 import tiktoken
@@ -19,7 +19,7 @@ from models import Session, User, Message
 #Tokens n folders
 AUDIOS_DIR = "audios"
 bot = Bot(token=bot_token)
-openai.api_key = api_key
+openai.api_key = openai_api_key
 logging.basicConfig(level=logging.INFO)
 
 dp = Dispatcher(bot)
