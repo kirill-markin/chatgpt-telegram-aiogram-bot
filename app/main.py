@@ -4,8 +4,6 @@ import openai
 import pydub
 import uuid
 from aiogram import Bot, Dispatcher, types
-from aiogram.utils import executor
-import time
 from config import bot_token, openai_api_key
 from message_templates import message_templates
 import asyncio
@@ -334,5 +332,13 @@ async def handle_other_messages(message: types.Message):
     # Обработка других типов сообщений (фото, документы, стикеры и т.д.)
     await message.reply(message_templates['en']['not_supported'])
 
-if __name__ == '__main__':
-    executor.start_polling(dp, skip_updates=True, on_startup=setup_bot_commands)
+async def main() -> None:
+    # Initialize Bot instance with a default parse mode which will be passed to all API calls
+    bot = Bot(bot_token)
+    # And the run events dispatching
+    await dp.start_polling(bot)
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    asyncio.run(main())
