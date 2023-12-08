@@ -1,34 +1,43 @@
 import os
 import logging
 import openai
+from openai import OpenAI, AsyncOpenAI
 import pydub
 import uuid
-from aiogram import Bot, Dispatcher, types
+from aiogram import Bot, Dispatcher, types, Router, F
+
 from config import bot_token, openai_api_key
+from aiogram.filters import Command
 from message_templates import message_templates
 import asyncio
 import tiktoken
 from models import Session
+
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
 
 from models import Session, User, Message
 
 
+
 #Tokens n folders
 AUDIOS_DIR = "audios"
+TOKEN = bot_token
 bot = Bot(token=bot_token)
 openai.api_key = openai_api_key
 logging.basicConfig(level=logging.INFO)
 
-dp = Dispatcher(bot)
+dp = Dispatcher()
+
 
 messages = {}
 user_languages = {}  
 session = Session()
 
-urlkb = InlineKeyboardMarkup(row_width=1)
+
 urlButton = InlineKeyboardButton(text='Kirill Markin', url='https://t.me/kirmark')
-urlkb.add(urlButton)
+urlkb = InlineKeyboardMarkup(row_width=1,inline_keyboard=[
+    [urlButton],])
+
 
 async def setup_bot_commands(dp):
     bot_commands = [
@@ -70,9 +79,21 @@ def generate_unique_name():
     return f"{str(uuid_value)}"
 
 def convert_speech_to_text(audio_filepath):
-    with open(audio_filepath, "rb") as audio:
-        transcript = openai.Audio.transcribe("whisper-1", audio)
-        return transcript["text"]
+    client = OpenAI(
+    # This is the default and can be omitted
+    api_key=os.environ.get("OPENAI_API_KEY"),
+    )
+    #with open(audio_filepath, "rb") as audio:
+        #transcript = client.audio.translations.create("whisper-1", audio)
+        #return transcript["text"]
+    
+    audio_file = open(audio_filepath, "rb")
+    transcript = client.audio.transcriptions.create(
+        model = "whisper-1", 
+        file = audio_file
+        )
+    print(transcript)
+    return transcript
 
 async def download_voice_as_ogg(voice):
     voice_file = await bot.get_file(voice.file_id)
@@ -97,7 +118,7 @@ def is_user_allowed(username):
     return False
 
 
-async def process_message(message):
+async def process_message(message,user_messages):
     userid = message.from_user.username
     user_id = message.from_user.id
     print(userid)
@@ -120,10 +141,10 @@ async def process_message(message):
     processing_message = await message.reply(message_templates['en']['processing'])
 
     encoding = tiktoken.encoding_for_model("gpt-4-1106-prewiev")
-    user_message_tokens = encoding.encode(message.text)
+    user_message_tokens = encoding.encode(user_messages[userid])
     print(len(user_message_tokens))
     # Создаем новое сообщение в базе данных
-    new_message = Message(username=userid, role="user", content=message.text)
+    new_message = Message(username=userid, role="user", content=user_messages[userid])
     session.add(new_message)
     session.commit()
 
@@ -137,9 +158,13 @@ async def process_message(message):
     # Получаем историю сообщений пользователя из базы данных
     message_history = session.query(Message).filter_by(username=userid).all()
     message_history = [assistant_prompt] + [{"role": "user", "content": msg.content} for msg in message_history]
+    client = OpenAI(
+    # This is the default and can be omitted
+    api_key=os.environ.get("OPENAI_API_KEY"),
+    )
 
     # Используем историю сообщений для запроса к модели GPT
-    completion = await openai.ChatCompletion.acreate(
+    completion =  client.chat.completions.create(
         model=GPT_MODEL,
         messages=message_history,
         max_tokens=2500,
@@ -149,25 +174,28 @@ async def process_message(message):
         user=userid,
     )
 
-    chatgpt_response = completion.choices[0]['message']
-    chatgpt_response_tokens = encoding.encode(chatgpt_response['content'])
+    
+    chatgpt_response = completion.choices[0].message.content
+    print(chatgpt_response)
+    #chatgpt_response = completion.choices[0]['message']
+    chatgpt_response_tokens = encoding.encode(chatgpt_response)
     print(len(chatgpt_response_tokens))
 
     user.tokens_used += len(user_message_tokens)
     user.tokens_used += len(chatgpt_response_tokens)
     # Создаем новое сообщение в базе данных для ответа ассистента
-    new_message = Message(username=userid, role="assistant", content=chatgpt_response['content'])
+    new_message = Message(username=userid, role="assistant", content=chatgpt_response)
     session.add(new_message)
     session.commit()
 
-    logging.info(f'ChatGPT response: {chatgpt_response["content"]}')
+    logging.info(f'ChatGPT response: {chatgpt_response}')
 
-    await message.reply(chatgpt_response['content'])
+    await message.reply(chatgpt_response)
 
     await bot.delete_message(chat_id=processing_message.chat.id, message_id=processing_message.message_id)
 
 
-@dp.message_handler(commands=['start'])
+@dp.message(Command('start'))
 async def send_welcome(message: types.Message):
     userid = message.from_user.username
     # Check if the user is allowed to use the bot
@@ -183,11 +211,7 @@ async def send_welcome(message: types.Message):
 
 
 
-@dp.message_handler(content_types=[
-    types.ContentType.VOICE,
-    types.ContentType.AUDIO,
-    ]
-)
+@dp.message(F.voice | F.audio)
 async def voice_message_handler(message: types.Message):
     userid = message.from_user.username
 
@@ -201,7 +225,7 @@ async def voice_message_handler(message: types.Message):
     transcripted_text = convert_speech_to_text(mp3_filepath)
     user_message = transcripted_text
     userid = message.from_user.username
-    message.text = user_message
+    #message.text = user_message
     os.remove(ogg_filepath)
     os.remove(mp3_filepath)
     try:
@@ -214,7 +238,6 @@ async def voice_message_handler(message: types.Message):
             asyncio.sleep(4),
             name=f"timer_for_{userid}"
         )
-        message.text = user_messages[userid]
         print(message)
         processing_timers[userid].add_done_callback(
             lambda _: asyncio.create_task(process_user_message(message))
@@ -226,7 +249,7 @@ async def voice_message_handler(message: types.Message):
             await echo_msg(message)
 
 
-@dp.message_handler(commands=['newtopic'])
+@dp.message(Command('newtopic'))
 async def new_topic_cmd(message: types.Message):
     userid = message.from_user.username
 
@@ -249,7 +272,7 @@ async def new_topic_cmd(message: types.Message):
 
 
 
-@dp.message_handler(commands=['help'])
+@dp.message(Command('help'))
 async def help_cmd(message: types.Message):
     userid = message.from_user.username
 
@@ -261,7 +284,7 @@ async def help_cmd(message: types.Message):
     await message.reply(message_templates['en']['help'])
 
 
-@dp.message_handler(commands=['about'])
+@dp.message(Command('about'))
 async def about_cmd(message: types.Message):
     userid = message.from_user.username
 
@@ -279,16 +302,15 @@ processing_timers = {}
 async def process_user_message(message):
     userid = message.from_user.username
     if userid in user_messages:
-        message.text = user_messages.pop(userid)
-        asyncio.create_task(process_message(message))
+        #message.text = user_messages.pop(userid)
+        asyncio.create_task(process_message(message,user_messages))
 
     processing_timers.pop(userid, None)
 
 
-@dp.message_handler()
-async def echo_msg(message: types.Message):
+@dp.message(F.text)
+async def echo_msg(message: types.Message) -> None:
     userid = message.from_user.username
-    
     if not is_user_allowed(userid):
         await message.reply(message_templates['en']['not_allowed'], reply_markup=urlkb)
         return
@@ -305,7 +327,7 @@ async def echo_msg(message: types.Message):
             asyncio.sleep(4),
             name=f"timer_for_{userid}"
         )
-        message.text = user_messages[userid]
+        #message.text = user_messages[userid]
         print(message)
         processing_timers[userid].add_done_callback(
             lambda _: asyncio.create_task(process_user_message(message))
@@ -319,15 +341,8 @@ async def echo_msg(message: types.Message):
 
 
 
-@dp.message_handler(content_types=[
-    types.ContentType.PHOTO,
-    types.ContentType.DOCUMENT,
-    types.ContentType.STICKER,
-    types.ContentType.VIDEO,
-    types.ContentType.ANIMATION,
-    types.ContentType.VIDEO_NOTE,
-    ]
-)
+
+@dp.message(F.photo | F.document | F.sticker | F.video | F.animation | F.video_note)
 async def handle_other_messages(message: types.Message):
     # Обработка других типов сообщений (фото, документы, стикеры и т.д.)
     await message.reply(message_templates['en']['not_supported'])
