@@ -89,7 +89,8 @@ def convert_speech_to_text(audio_filepath):
     audio_file = open(audio_filepath, "rb")
     transcript = client.audio.transcriptions.create(
         model = "whisper-1", 
-        file = audio_file
+        file = audio_file,
+        response_format="text"
         )
     print(transcript)
     return transcript
@@ -190,10 +191,10 @@ async def voice_message_handler(message: types.Message):
     if not is_user_allowed(userid):
         await message.reply(message_templates['en']['not_allowed'], reply_markup=urlkb)
         return
-
     ogg_filepath = await download_voice_as_ogg(message.voice)
     mp3_filepath = convert_ogg_to_mp3(ogg_filepath)
     transcripted_text = convert_speech_to_text(mp3_filepath)
+    
     user_message = transcripted_text
     userid = message.from_user.username
     #message.text = user_message
@@ -201,10 +202,10 @@ async def voice_message_handler(message: types.Message):
     os.remove(mp3_filepath)
     try:
         if userid in processing_timers:
-            user_messages[userid] += "\n" + message.text
+            user_messages[userid] += "\n" + user_message
             return
         
-        user_messages[userid] = message.text
+        user_messages[userid] = user_message
         processing_timers[userid] = asyncio.create_task(
             asyncio.sleep(4),
             name=f"timer_for_{userid}"
