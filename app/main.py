@@ -12,7 +12,7 @@ import asyncio
 import tiktoken
 from models import Session
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
-from models import Session, User, Message
+from models import Session, User, Message, Config
 
 
 
@@ -43,28 +43,11 @@ async def setup_bot_commands(dp):
 
 
 #Assistant prompt for GPT
-GPT_MODEL = "gpt-4-1106-preview"
-TEMPERATURE = 0.7
-PROMPT_ASSISTANT = """
-Take a deep breath and think aloud step-by-step.
+config = session.query(Config).filter_by(id=1).first()
 
-Act as assistant
-Your name is Donna
-You are female
-You should be friendly
-You should not use official tone
-Your answers should be simple, and laconic but informative
-Before providing an answer check information above one more time
-Try to solve tasks step by step
-I will send you questions or topics to discuss and you will answer me
-You interface right now is a telegram messenger
-Some of messages you will receive from user was transcribed from voice messages
-
-If task is too abstract or you see more than one way to solve it or you need more information to solve it - ask me for more information from user.
-It is important to understand what user wants to get from you.
-But don't ask too much questions - it is annoying for user.
-"""
-
+GPT_MODEL = config.gpt_model
+TEMPERATURE = config.temperature
+PROMPT_ASSISTANT = config.prompt_assistant
 
 
 #Voice messages processors(voice to text, download, convert to mp3)
