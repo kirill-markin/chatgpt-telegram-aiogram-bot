@@ -5,16 +5,13 @@ from openai import OpenAI, AsyncOpenAI
 import pydub
 import uuid
 from aiogram import Bot, Dispatcher, types, Router, F
-
 from config import bot_token, openai_api_key
 from aiogram.filters import Command
 from message_templates import message_templates
 import asyncio
 import tiktoken
 from models import Session
-
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
-
 from models import Session, User, Message
 
 
@@ -25,15 +22,13 @@ TOKEN = bot_token
 bot = Bot(token=bot_token)
 openai.api_key = openai_api_key
 logging.basicConfig(level=logging.INFO)
-
 dp = Dispatcher()
-
-
 messages = {}
 user_languages = {}  
 session = Session()
 
 
+#Keyboard for url
 urlButton = InlineKeyboardButton(text='Kirill Markin', url='https://t.me/kirmark')
 urlkb = InlineKeyboardMarkup(row_width=1,inline_keyboard=[
     [urlButton],])
@@ -45,6 +40,9 @@ async def setup_bot_commands(dp):
     ]
     await bot.set_my_commands(bot_commands)
 
+
+
+#Assistant prompt for GPT
 GPT_MODEL = "gpt-4-1106-preview"
 TEMPERATURE = 0.7
 PROMPT_ASSISTANT = """
@@ -69,6 +67,7 @@ But don't ask too much questions - it is annoying for user.
 
 
 
+#Voice messages processors(voice to text, download, convert to mp3)
 def create_dir_if_not_exists(dir):
     if (not os.path.exists(dir)):
         os.mkdir(dir)
@@ -118,6 +117,8 @@ def is_user_allowed(username):
     return False
 
 
+
+# OpenAI API CALL 
 async def process_message(message,user_messages):
     userid = message.from_user.username
     user_id = message.from_user.id
@@ -128,18 +129,13 @@ async def process_message(message,user_messages):
         user = User(username=userid, role="user", is_allowed=True)
         session.add(user)
         session.commit()
-
     # Проверяем, не превысил ли пользователь лимит токенов
     if user.tokens_used >= 128000:
         user.is_allowed = False
         session.commit()
         await message.reply("Превышен лимит токенов. Для продолжения использования бота приобретите подписку.")
         return
-
-
-
     processing_message = await message.reply(message_templates['en']['processing'])
-
     encoding = tiktoken.encoding_for_model("gpt-4-1106-prewiev")
     user_message_tokens = encoding.encode(user_messages[userid])
     print(len(user_message_tokens))
@@ -147,14 +143,10 @@ async def process_message(message,user_messages):
     new_message = Message(username=userid, role="user", content=user_messages[userid])
     session.add(new_message)
     session.commit()
-
-
-
     assistant_prompt = {
         "role": "system",  # System role for setting up the context
         "content": PROMPT_ASSISTANT
     }
-
     # Получаем историю сообщений пользователя из базы данных
     message_history = session.query(Message).filter_by(username=userid).all()
     message_history = [assistant_prompt] + [{"role": "user", "content": msg.content} for msg in message_history]
@@ -162,7 +154,6 @@ async def process_message(message,user_messages):
     # This is the default and can be omitted
     api_key=os.environ.get("OPENAI_API_KEY"),
     )
-
     # Используем историю сообщений для запроса к модели GPT
     completion =  client.chat.completions.create(
         model=GPT_MODEL,
@@ -173,44 +164,24 @@ async def process_message(message,user_messages):
         presence_penalty=0,
         user=userid,
     )
-
-    
     chatgpt_response = completion.choices[0].message.content
     print(chatgpt_response)
     #chatgpt_response = completion.choices[0]['message']
     chatgpt_response_tokens = encoding.encode(chatgpt_response)
     print(len(chatgpt_response_tokens))
-
     user.tokens_used += len(user_message_tokens)
     user.tokens_used += len(chatgpt_response_tokens)
     # Создаем новое сообщение в базе данных для ответа ассистента
     new_message = Message(username=userid, role="assistant", content=chatgpt_response)
     session.add(new_message)
     session.commit()
-
     logging.info(f'ChatGPT response: {chatgpt_response}')
-
     await message.reply(chatgpt_response)
-
     await bot.delete_message(chat_id=processing_message.chat.id, message_id=processing_message.message_id)
 
 
-@dp.message(Command('start'))
-async def send_welcome(message: types.Message):
-    userid = message.from_user.username
-    # Check if the user is allowed to use the bot
-    if not is_user_allowed(userid):
-        await message.reply(message_templates['en']['not_allowed'], reply_markup=urlkb)
-        return
-    
-    username = message.from_user.username
-    messages[username] = []
-   
-    await message.reply(message_templates['en']['start'])
 
-
-
-
+# Voice messages handlers
 @dp.message(F.voice | F.audio)
 async def voice_message_handler(message: types.Message):
     userid = message.from_user.username
@@ -249,6 +220,21 @@ async def voice_message_handler(message: types.Message):
             await echo_msg(message)
 
 
+# Slash commands halnders
+@dp.message(Command('start'))
+async def send_welcome(message: types.Message):
+    userid = message.from_user.username
+    # Check if the user is allowed to use the bot
+    if not is_user_allowed(userid):
+        await message.reply(message_templates['en']['not_allowed'], reply_markup=urlkb)
+        return
+    
+    username = message.from_user.username
+    messages[username] = []
+   
+    await message.reply(message_templates['en']['start'])
+
+
 @dp.message(Command('newtopic'))
 async def new_topic_cmd(message: types.Message):
     userid = message.from_user.username
@@ -263,13 +249,9 @@ async def new_topic_cmd(message: types.Message):
         if user:
             session.query(Message).filter(Message.username == userid).delete()
             session.commit()
-        
         await message.reply(message_templates['en']['newtopic'])
     except Exception as e:
         logging.error(f'Error in new_topic_cmd: {e}')
-
-
-
 
 
 @dp.message(Command('help'))
@@ -280,7 +262,6 @@ async def help_cmd(message: types.Message):
     if not is_user_allowed(userid):
         await message.reply(message_templates['en']['not_allowed'], reply_markup=urlkb)
         return
-    
     await message.reply(message_templates['en']['help'])
 
 
@@ -292,13 +273,14 @@ async def about_cmd(message: types.Message):
     if not is_user_allowed(userid):
         await message.reply(message_templates['en']['not_allowed'], reply_markup=urlkb)
         return
-    
     await message.reply(message_templates['en']['about'])
+
 
 user_messages = {}
 processing_timers = {}
 
 
+# Processing of user messages (voices and messages)
 async def process_user_message(message):
     userid = message.from_user.username
     if userid in user_messages:
@@ -308,6 +290,7 @@ async def process_user_message(message):
     processing_timers.pop(userid, None)
 
 
+# Handling of text messages
 @dp.message(F.text)
 async def echo_msg(message: types.Message) -> None:
     userid = message.from_user.username
@@ -342,10 +325,13 @@ async def echo_msg(message: types.Message) -> None:
 
 
 
+#Handling all other types of messages
 @dp.message(F.photo | F.document | F.sticker | F.video | F.animation | F.video_note)
 async def handle_other_messages(message: types.Message):
     # Обработка других типов сообщений (фото, документы, стикеры и т.д.)
     await message.reply(message_templates['en']['not_supported'])
+
+
 
 async def main() -> None:
     # Initialize Bot instance with a default parse mode which will be passed to all API calls
