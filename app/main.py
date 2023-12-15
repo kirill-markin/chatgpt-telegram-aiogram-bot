@@ -13,7 +13,7 @@ import tiktoken
 from models import Session
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
 from models import Session, User, Message, Config
-
+from datetime import datetime, timedelta
 
 
 #Tokens n folders
@@ -132,11 +132,20 @@ async def process_message(message,user_messages):
         "content": PROMPT_ASSISTANT
     }
     # Получаем историю сообщений пользователя из базы данных
-    message_history = session.query(Message).filter_by(username=userid).all()
+    two_hours_ago = datetime.now() - timedelta(hours=2)
+    message_history = session.query(Message).filter(Message.username == userid, Message.timestamp <= two_hours_ago).all()
     message_history = [assistant_prompt] + [{"role": "user", "content": msg.content} for msg in message_history]
+
+    # Получаем пользователя из базы данных
+    user = session.query(User).filter_by(username=userid).first()
+    # Если у пользователя есть кастомный API ключ, используем его, иначе используем стандартный
+    api_key = user.custom_api_key if user.custom_api_key else openai_api_key
+    # Используем api_key в вашем коде
+    openai.api_key = api_key
+
     client = OpenAI(
     # This is the default and can be omitted
-    api_key=os.environ.get("OPENAI_API_KEY"),
+    api_key= api_key,
     )
     # Используем историю сообщений для запроса к модели GPT
     completion =  client.chat.completions.create(
