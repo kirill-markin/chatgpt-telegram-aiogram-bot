@@ -24,7 +24,7 @@ class User(Base):
 def add_user(username, role, is_allowed):
     session = Session()
     
-    # Проверяем, существует ли пользователь с заданным именем
+    # Check if user with given name already exists
     existing_user = session.query(User).filter_by(username=username).first()
     
     if existing_user is None:
@@ -67,7 +67,7 @@ class Config(Base):
 def add_config(gpt_model, temperature, prompt_assistant, config_id=1):
     session = Session()
     
-    # Проверяем, существует ли пользователь с заданным именем
+    # check if config already exists
     existing_config = session.query(Config).filter_by(id=config_id).first()
     
     if existing_config is None:
