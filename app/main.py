@@ -13,7 +13,7 @@ import tiktoken
 from models import Session
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
 from models import Session, User, Message, Config
-
+from datetime import datetime, timedelta
 
 
 #Tokens n folders
@@ -48,6 +48,7 @@ config = session.query(Config).filter_by(id=1).first()
 GPT_MODEL = config.gpt_model
 TEMPERATURE = config.temperature
 PROMPT_ASSISTANT = config.prompt_assistant
+two_hours_ago = datetime.now() - timedelta(hours=2)
 
 
 #Voice messages processors(voice to text, download, convert to mp3)
@@ -62,13 +63,8 @@ def generate_unique_name():
 
 def convert_speech_to_text(audio_filepath):
     client = OpenAI(
-    # This is the default and can be omitted
     api_key=os.environ.get("OPENAI_API_KEY"),
     )
-    #with open(audio_filepath, "rb") as audio:
-        #transcript = client.audio.translations.create("whisper-1", audio)
-        #return transcript["text"]
-    
     audio_file = open(audio_filepath, "rb")
     transcript = client.audio.transcriptions.create(
         model = "whisper-1", 
@@ -100,20 +96,21 @@ def is_user_allowed(username):
         return user.is_allowed
     return False
 
-
+def has_messages_in_last_two_hours(session: Session):
+    return session.query(Message).filter(Message.timestamp >= two_hours_ago).count() > 0
 
 # OpenAI API CALL 
 async def process_message(message,user_messages):
     userid = message.from_user.username
     user_id = message.from_user.id
     print(userid)
-    # Получаем или создаем пользователя в базе данных
+    # Get or create user of database
     user = session.query(User).filter_by(username=userid).first()
     if not user:
         user = User(username=userid, role="user", is_allowed=True)
         session.add(user)
         session.commit()
-    # Проверяем, не превысил ли пользователь лимит токенов
+    # Check if the token limit is exceeded
     if user.tokens_used >= 128000:
         user.is_allowed = False
         session.commit()
@@ -123,7 +120,13 @@ async def process_message(message,user_messages):
     encoding = tiktoken.encoding_for_model("gpt-4-1106-prewiev")
     user_message_tokens = encoding.encode(user_messages[userid])
     print(len(user_message_tokens))
-    # Создаем новое сообщение в базе данных
+
+    if has_messages_in_last_two_hours(session):
+        new_message = Message(username=userid, role="user", content=PROMPT_ASSISTANT)
+        session.add(new_message)
+        session.commit()
+
+    # Create new message in database for user message
     new_message = Message(username=userid, role="user", content=user_messages[userid])
     session.add(new_message)
     session.commit()
@@ -131,14 +134,23 @@ async def process_message(message,user_messages):
         "role": "system",  # System role for setting up the context
         "content": PROMPT_ASSISTANT
     }
-    # Получаем историю сообщений пользователя из базы данных
-    message_history = session.query(Message).filter_by(username=userid).all()
-    message_history = [assistant_prompt] + [{"role": "user", "content": msg.content} for msg in message_history]
+    # Get the last two hours of messages from the database
+    
+    message_history = session.query(Message).filter(Message.username == userid, Message.timestamp <= two_hours_ago).all()
+    message_history = [{"role": "user", "content": msg.content} for msg in message_history]
+    user = session.query(User).filter_by(username=userid).first()
+
+    # If user has custom api key, use it
+    api_key = user.custom_api_key if user.custom_api_key else openai_api_key
+
+    # Use standart api_key
+    openai.api_key = api_key
+
     client = OpenAI(
     # This is the default and can be omitted
-    api_key=os.environ.get("OPENAI_API_KEY"),
+    api_key= api_key,
     )
-    # Используем историю сообщений для запроса к модели GPT
+    # Call OpenAI API
     completion =  client.chat.completions.create(
         model=GPT_MODEL,
         messages=message_history,
@@ -149,8 +161,6 @@ async def process_message(message,user_messages):
         user=userid,
     )
     chatgpt_response = completion.choices[0].message.content
-    print(chatgpt_response)
-    #chatgpt_response = completion.choices[0]['message']
     chatgpt_response_tokens = encoding.encode(chatgpt_response)
     print(len(chatgpt_response_tokens))
     user.tokens_used += len(user_message_tokens)
@@ -180,7 +190,6 @@ async def voice_message_handler(message: types.Message):
     
     user_message = transcripted_text
     userid = message.from_user.username
-    #message.text = user_message
     os.remove(ogg_filepath)
     os.remove(mp3_filepath)
     try:
@@ -228,10 +237,12 @@ async def new_topic_cmd(message: types.Message):
         await message.reply(message_templates['en']['not_allowed'], reply_markup=urlkb)
         return
     try:
-        user_id = message.from_user.id
         user = session.query(User).filter(User.username == userid).first()
         if user:
             session.query(Message).filter(Message.username == userid).delete()
+            session.commit()
+            new_message = Message(username=userid, role="user", content=PROMPT_ASSISTANT)
+            session.add(new_message)
             session.commit()
         await message.reply(message_templates['en']['newtopic'])
     except Exception as e:
@@ -284,17 +295,16 @@ async def echo_msg(message: types.Message) -> None:
     
     try:
         if userid in processing_timers:
-            # Обновить сообщение пользователя
+            # Update the user message
             user_messages[userid] += "\n" + message.text
             return
         
-        # Создать новое сообщение пользователя и таймер
+        # Create new user message and start timer
         user_messages[userid] = message.text
         processing_timers[userid] = asyncio.create_task(
             asyncio.sleep(4),
             name=f"timer_for_{userid}"
         )
-        #message.text = user_messages[userid]
         print(message)
         processing_timers[userid].add_done_callback(
             lambda _: asyncio.create_task(process_user_message(message))
