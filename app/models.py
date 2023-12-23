@@ -85,8 +85,7 @@ def create_tables():
 
 def add_default_users():
     if not get_all_users():
-        add_user('noodlecode', 'user', True)
-        add_user('kirmark', 'user', True)
+        add_user('username', 'role', True)
 
 def add_default_config():
     add_config('gpt-4-1106-preview', 0.7, '''Take a deep breath and think aloud step-by-step.
