@@ -5,7 +5,7 @@ from openai import OpenAI, AsyncOpenAI
 import pydub
 import uuid
 from aiogram import Bot, Dispatcher, types, Router, F
-from config import bot_token, openai_api_key
+from config import bot_token, openai_api_key, hours_for_messages
 from aiogram.filters import Command
 from message_templates import message_templates
 import asyncio
@@ -48,8 +48,7 @@ config = session.query(Config).filter_by(id=1).first()
 GPT_MODEL = config.gpt_model
 TEMPERATURE = config.temperature
 PROMPT_ASSISTANT = config.prompt_assistant
-two_hours_ago = datetime.now() - timedelta(hours=2)
-
+permited_hours = datetime.now() - timedelta(hours=hours_for_messages)
 
 #Voice messages processors(voice to text, download, convert to mp3)
 def create_dir_if_not_exists(dir):
@@ -96,9 +95,6 @@ def is_user_allowed(username):
         return user.is_allowed
     return False
 
-def has_messages_in_last_two_hours(session: Session):
-    return session.query(Message).filter(Message.timestamp >= two_hours_ago).count() > 0
-
 # OpenAI API CALL 
 async def process_message(message,user_messages):
     userid = message.from_user.username
@@ -121,11 +117,6 @@ async def process_message(message,user_messages):
     user_message_tokens = encoding.encode(user_messages[userid])
     print(len(user_message_tokens))
 
-    if has_messages_in_last_two_hours(session):
-        new_message = Message(username=userid, role="user", content=PROMPT_ASSISTANT)
-        session.add(new_message)
-        session.commit()
-
     # Create new message in database for user message
     new_message = Message(username=userid, role="user", content=user_messages[userid])
     session.add(new_message)
@@ -136,8 +127,8 @@ async def process_message(message,user_messages):
     }
     # Get the last two hours of messages from the database
     
-    message_history = session.query(Message).filter(Message.username == userid, Message.timestamp <= two_hours_ago).all()
-    message_history = [{"role": "user", "content": msg.content} for msg in message_history]
+    message_history = session.query(Message).filter(Message.username == userid, Message.timestamp <= permited_hours).all()
+    message_history = [assistant_prompt] + [{"role": "user", "content": msg.content} for msg in message_history]
     user = session.query(User).filter_by(username=userid).first()
 
     # If user has custom api key, use it
@@ -240,9 +231,6 @@ async def new_topic_cmd(message: types.Message):
         user = session.query(User).filter(User.username == userid).first()
         if user:
             session.query(Message).filter(Message.username == userid).delete()
-            session.commit()
-            new_message = Message(username=userid, role="user", content=PROMPT_ASSISTANT)
-            session.add(new_message)
             session.commit()
         await message.reply(message_templates['en']['newtopic'])
     except Exception as e:
