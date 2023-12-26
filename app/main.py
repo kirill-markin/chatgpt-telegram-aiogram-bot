@@ -325,7 +325,7 @@ async def main() -> None:
 
 if __name__ == "__main__":
     # Create the "audios" folder if it doesn't exist
-    audios_folder = "./audios"
+    audios_folder = f"./{AUDIOS_DIR}"
     if not os.path.exists(audios_folder):
         os.makedirs(audios_folder)
 
