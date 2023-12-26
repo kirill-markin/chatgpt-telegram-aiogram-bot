@@ -5,6 +5,7 @@ from config import db_url
 from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Float
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
+import logging
 
 Base = declarative_base()
 engine = create_engine(db_url)
@@ -31,9 +32,9 @@ def add_user(username, role, is_allowed):
         new_user = User(username=username, role=role, is_allowed=is_allowed)
         session.add(new_user)
         session.commit()
-        print(f"User {username} added successfully.")
+        logging.info(f"User {username} added successfully.")
     else:
-        print(f"User {username} already exists.")
+        logging.info(f"User {username} already exists.")
     
     session.close()
 
@@ -74,9 +75,9 @@ def add_config(gpt_model, temperature, prompt_assistant, config_id=1):
         new_config = Config(gpt_model=gpt_model, temperature = temperature, prompt_assistant = prompt_assistant)
         session.add(new_config)
         session.commit()
-        print(f"Config added successfully.")
+        logging.info(f"Config added successfully.")
     else:
-        print(f"Config already exists.")
+        logging.info(f"Config already exists.")
     
     session.close()
 

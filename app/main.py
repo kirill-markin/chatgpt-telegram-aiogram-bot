@@ -1,6 +1,8 @@
 import os
+import argparse
 import logging
 import openai
+import json
 from openai import OpenAI, AsyncOpenAI
 import pydub
 import uuid
@@ -14,7 +16,6 @@ from models import Session
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
 from models import Session, User, Message, Config
 from datetime import datetime, timedelta
-import os
 
 
 #Tokens n folders
@@ -22,12 +23,27 @@ AUDIOS_DIR = "audios"
 TOKEN = bot_token
 bot = Bot(token=bot_token)
 openai.api_key = openai_api_key
-logging.basicConfig(level=logging.INFO)
 dp = Dispatcher()
 messages = {}
 user_languages = {}  
 session = Session()
 
+# Create the "audios" folder if it doesn't exist
+audios_folder = f"./{AUDIOS_DIR}"
+if not os.path.exists(audios_folder):
+    os.makedirs(audios_folder)
+
+# Set up argument parser
+parser = argparse.ArgumentParser(description="Run the script.")
+parser.add_argument("--debug", help="Enable debug logging", action="store_true")
+args = parser.parse_args()
+
+# Configure logging based on the presence of the debug flag
+log_format = '%(asctime)s - %(levelname)s - %(message)s'
+if args.debug:
+    logging.basicConfig(level=logging.DEBUG, force=True, format=log_format)
+else:
+    logging.basicConfig(level=logging.INFO, force=True, format=log_format)
 
 #Keyboard for url
 urlButton = InlineKeyboardButton(text='Kirill Markin', url='https://t.me/kirmark')
@@ -51,6 +67,14 @@ TEMPERATURE = config.temperature
 PROMPT_ASSISTANT = config.prompt_assistant
 permited_hours = datetime.now() - timedelta(hours=hours_for_messages)
 
+def pretty_format_message_history(message_history):
+    # Create a custom formatter for the message history
+    formatted_history = []
+    for message in message_history:
+        formatted_message = {key: (val if key != 'content' else ' '.join(val.split())) for key, val in message.items()}
+        formatted_history.append(formatted_message)
+    return json.dumps(formatted_history, indent=4)
+
 #Voice messages processors(voice to text, download, convert to mp3)
 def create_dir_if_not_exists(dir):
     if (not os.path.exists(dir)):
@@ -71,7 +95,7 @@ def convert_speech_to_text(audio_filepath):
         file = audio_file,
         response_format="text"
         )
-    print(transcript)
+    logging.debug(f'Transcript: {transcript}')
     return transcript
 
 async def download_voice_as_ogg(voice):
@@ -91,7 +115,7 @@ def convert_ogg_to_mp3(ogg_filepath):
 def is_user_allowed(username):
     session = Session()
     user = session.query(User).filter_by(username=username).first()
-    print(user)
+    logging.debug(f'User: {user}')
     if user:
         return user.is_allowed
     return False
@@ -100,7 +124,7 @@ def is_user_allowed(username):
 async def process_message(message,user_messages):
     userid = message.from_user.username
     user_id = message.from_user.id
-    print(userid)
+    logging.debug(f'User id: {user_id}')
     # Get or create user of database
     user = session.query(User).filter_by(username=userid).first()
     if not user:
@@ -116,7 +140,8 @@ async def process_message(message,user_messages):
     processing_message = await message.reply(message_templates['en']['processing'])
     encoding = tiktoken.encoding_for_model("gpt-4-1106-prewiev")
     user_message_tokens = encoding.encode(user_messages[userid])
-    print(len(user_message_tokens))
+    logging.debug(f'User message tokens: {user_message_tokens}')
+    logging.debug(f'User message: {user_messages[userid]}')
 
     # Create new message in database for user message
     new_message = Message(username=userid, role="user", content=user_messages[userid])
@@ -130,6 +155,7 @@ async def process_message(message,user_messages):
     
     message_history = session.query(Message).filter(Message.username == userid, Message.timestamp <= permited_hours).all()
     message_history = [assistant_prompt] + [{"role": "user", "content": msg.content} for msg in message_history]
+    logging.debug('Message history:\n%s', pretty_format_message_history(message_history))
     user = session.query(User).filter_by(username=userid).first()
 
     # If user has custom api key, use it
@@ -139,8 +165,8 @@ async def process_message(message,user_messages):
     openai.api_key = api_key
 
     client = OpenAI(
-    # This is the default and can be omitted
-    api_key= api_key,
+        # This is the default and can be omitted
+        api_key=api_key,
     )
     # Call OpenAI API
     completion =  client.chat.completions.create(
@@ -154,16 +180,17 @@ async def process_message(message,user_messages):
     )
     chatgpt_response = completion.choices[0].message.content
     chatgpt_response_tokens = encoding.encode(chatgpt_response)
-    print(len(chatgpt_response_tokens))
+    logging.debug(f'ChatGPT response tokens: {chatgpt_response_tokens}')
     user.tokens_used += len(user_message_tokens)
     user.tokens_used += len(chatgpt_response_tokens)
     # Создаем новое сообщение в базе данных для ответа ассистента
     new_message = Message(username=userid, role="assistant", content=chatgpt_response)
     session.add(new_message)
     session.commit()
-    logging.info(f'ChatGPT response: {chatgpt_response}')
+    logging.debug(f'ChatGPT response: {chatgpt_response}')
     await message.reply(chatgpt_response)
     await bot.delete_message(chat_id=processing_message.chat.id, message_id=processing_message.message_id)
+    logging.info(f'message from {userid} processed')
 
 
 
@@ -194,7 +221,7 @@ async def voice_message_handler(message: types.Message):
             asyncio.sleep(4),
             name=f"timer_for_{userid}"
         )
-        print(message)
+        logging.debug(f'User message: {user_messages[userid]}')
         processing_timers[userid].add_done_callback(
             lambda _: asyncio.create_task(process_user_message(message))
         )
@@ -294,7 +321,7 @@ async def echo_msg(message: types.Message) -> None:
             asyncio.sleep(4),
             name=f"timer_for_{userid}"
         )
-        print(message)
+        logging.debug(f'User message: {user_messages[userid]}')
         processing_timers[userid].add_done_callback(
             lambda _: asyncio.create_task(process_user_message(message))
         )
@@ -324,10 +351,5 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    # Create the "audios" folder if it doesn't exist
-    audios_folder = f"./{AUDIOS_DIR}"
-    if not os.path.exists(audios_folder):
-        os.makedirs(audios_folder)
-
-    logging.basicConfig(level=logging.INFO)
+    logging.info("Starting bot...")
     asyncio.run(main())

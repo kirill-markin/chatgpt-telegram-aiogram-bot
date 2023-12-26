@@ -27,7 +27,6 @@ Manually edit database to add default users and config.
 INSERT INTO users (username, role) VALUES ('kirmark', 'premium');
 ```
 
-
 ## add_default_config
 
 <!-- TODO: add default config -->
@@ -36,6 +35,12 @@ INSERT INTO users (username, role) VALUES ('kirmark', 'premium');
 
 ```bash
 python3 main.py
+```
+
+## Usage with debug
+
+```bash
+python3 main.py --debug 
 ```
 
 ## Run tests
