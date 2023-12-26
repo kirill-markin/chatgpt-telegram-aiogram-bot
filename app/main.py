@@ -14,6 +14,7 @@ from models import Session
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
 from models import Session, User, Message, Config
 from datetime import datetime, timedelta
+import os
 
 
 #Tokens n folders
@@ -323,5 +324,10 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
+    # Create the "audios" folder if it doesn't exist
+    audios_folder = "./audios"
+    if not os.path.exists(audios_folder):
+        os.makedirs(audios_folder)
+
     logging.basicConfig(level=logging.INFO)
     asyncio.run(main())
