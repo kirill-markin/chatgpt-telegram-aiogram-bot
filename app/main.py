@@ -122,6 +122,7 @@ def is_user_allowed(username):
 
 # OpenAI API CALL 
 async def process_message(message,user_messages):
+    chat_id = message.chat.id
     userid = message.from_user.username
     user_id = message.from_user.id
     logging.debug(f'User id: {user_id}')
@@ -144,7 +145,8 @@ async def process_message(message,user_messages):
     logging.debug(f'User message: {user_messages[userid]}')
 
     # Create new message in database for user message
-    new_message = Message(username=userid, role="user", content=user_messages[userid])
+    new_message = Message(chat_id = str(chat_id), username=userid, role="user", content=user_messages[userid])
+    logging.debug(f'New message: {new_message}')
     session.add(new_message)
     session.commit()
     assistant_prompt = {
@@ -153,7 +155,8 @@ async def process_message(message,user_messages):
     }
     # Get the last two hours of messages from the database
     
-    message_history = session.query(Message).filter(Message.username == userid, Message.timestamp >= permited_hours).all()
+    message_history = session.query(Message).filter(Message.chat_id == str(chat_id), Message.timestamp >= permited_hours).all()
+    logging.debug(f'Message history: {message_history}')
     message_history = [assistant_prompt] + [{"role": "user", "content": msg.content} for msg in message_history]
     logging.debug('Message history:\n%s', pretty_format_message_history(message_history))
     user = session.query(User).filter_by(username=userid).first()
@@ -184,7 +187,7 @@ async def process_message(message,user_messages):
     user.tokens_used += len(user_message_tokens)
     user.tokens_used += len(chatgpt_response_tokens)
     # Создаем новое сообщение в базе данных для ответа ассистента
-    new_message = Message(username=userid, role="assistant", content=chatgpt_response)
+    new_message = Message(chat_id=chat_id, role="assistant", content=chatgpt_response)
     session.add(new_message)
     session.commit()
     logging.debug(f'ChatGPT response: {chatgpt_response}')
@@ -250,6 +253,7 @@ async def send_welcome(message: types.Message):
 @dp.message(Command('newtopic'))
 async def new_topic_cmd(message: types.Message):
     userid = message.from_user.username
+    chat_id = message.chat.id
 
     # Check if the user is allowed to use the bot
     if not is_user_allowed(userid):
@@ -258,7 +262,7 @@ async def new_topic_cmd(message: types.Message):
     try:
         user = session.query(User).filter(User.username == userid).first()
         if user:
-            session.query(Message).filter(Message.username == userid).delete()
+            session.query(Message).filter(Message.chat_id == str(chat_id)).delete()
             session.commit()
         await message.reply(message_templates['en']['newtopic'])
     except Exception as e:
