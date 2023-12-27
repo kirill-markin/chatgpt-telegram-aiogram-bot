@@ -153,7 +153,7 @@ async def process_message(message,user_messages):
     }
     # Get the last two hours of messages from the database
     
-    message_history = session.query(Message).filter(Message.username == userid, Message.timestamp <= permited_hours).all()
+    message_history = session.query(Message).filter(Message.username == userid, Message.timestamp >= permited_hours).all()
     message_history = [assistant_prompt] + [{"role": "user", "content": msg.content} for msg in message_history]
     logging.debug('Message history:\n%s', pretty_format_message_history(message_history))
     user = session.query(User).filter_by(username=userid).first()
