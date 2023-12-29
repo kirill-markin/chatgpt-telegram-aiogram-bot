@@ -125,7 +125,7 @@ async def process_message(message,user_messages):
     chat_id = message.chat.id
     userid = message.from_user.username
     user_id = message.from_user.id
-    logging.debug(f'User id: {user_id}')
+    logging.info(f'Processing message from {userid}, chat_id: {chat_id}')
     # Get or create user of database
     user = session.query(User).filter_by(username=userid).first()
     if not user:
@@ -201,9 +201,11 @@ async def process_message(message,user_messages):
 @dp.message(F.voice | F.audio)
 async def voice_message_handler(message: types.Message):
     userid = message.from_user.username
+    logging.info(f'User {userid} sent voice message')
 
     # Check if the user is allowed to use the bot
     if not is_user_allowed(userid):
+        logging.info(f'User {userid} is not allowed')
         await message.reply(message_templates['en']['not_allowed'], reply_markup=urlkb)
         return
     ogg_filepath = await download_voice_as_ogg(message.voice)
@@ -229,6 +231,7 @@ async def voice_message_handler(message: types.Message):
             lambda _: asyncio.create_task(process_user_message(message))
         )
     except Exception as ex:
+        logging.error(f'Error in voice_message_handler: {ex}')
         if str(ex) == "context_length_exceeded":
             await message.reply(message_templates['en']['error'])
             await new_topic_cmd(message)
@@ -239,14 +242,16 @@ async def voice_message_handler(message: types.Message):
 @dp.message(Command('start'))
 async def send_welcome(message: types.Message):
     userid = message.from_user.username
+    logging.info(f'User {userid} started the bot')
     # Check if the user is allowed to use the bot
     if not is_user_allowed(userid):
+        logging.info(f'User {userid} is not allowed')
         await message.reply(message_templates['en']['not_allowed'], reply_markup=urlkb)
         return
     
     username = message.from_user.username
     messages[username] = []
-   
+
     await message.reply(message_templates['en']['start'])
 
 
@@ -254,9 +259,11 @@ async def send_welcome(message: types.Message):
 async def new_topic_cmd(message: types.Message):
     userid = message.from_user.username
     chat_id = message.chat.id
+    logging.info(f'User {userid} started new topic')
 
     # Check if the user is allowed to use the bot
     if not is_user_allowed(userid):
+        logging.info(f'User {userid} is not allowed')
         await message.reply(message_templates['en']['not_allowed'], reply_markup=urlkb)
         return
     try:
@@ -272,9 +279,11 @@ async def new_topic_cmd(message: types.Message):
 @dp.message(Command('help'))
 async def help_cmd(message: types.Message):
     userid = message.from_user.username
+    logging.info(f'User {userid} requested help')
 
     # Check if the user is allowed to use the bot
     if not is_user_allowed(userid):
+        logging.info(f'User {userid} is not allowed')
         await message.reply(message_templates['en']['not_allowed'], reply_markup=urlkb)
         return
     await message.reply(message_templates['en']['help'])
@@ -283,9 +292,11 @@ async def help_cmd(message: types.Message):
 @dp.message(Command('about'))
 async def about_cmd(message: types.Message):
     userid = message.from_user.username
+    logging.info(f'User {userid} requested about')
 
     # Check if the user is allowed to use the bot
     if not is_user_allowed(userid):
+        logging.info(f'User {userid} is not allowed')
         await message.reply(message_templates['en']['not_allowed'], reply_markup=urlkb)
         return
     await message.reply(message_templates['en']['about'])
@@ -309,7 +320,9 @@ async def process_user_message(message):
 @dp.message(F.text)
 async def echo_msg(message: types.Message) -> None:
     userid = message.from_user.username
+    logging.info(f'User {userid} sent text message')
     if not is_user_allowed(userid):
+        logging.info(f'User {userid} is not allowed')
         await message.reply(message_templates['en']['not_allowed'], reply_markup=urlkb)
         return
     
@@ -331,6 +344,7 @@ async def echo_msg(message: types.Message) -> None:
         )
         
     except Exception as ex:
+        logging.error(f'Error in echo_msg: {ex}')
         if str(ex) == "context_length_exceeded":
             await message.reply(message_templates['en']['error'])
             await new_topic_cmd(message)
@@ -343,6 +357,7 @@ async def echo_msg(message: types.Message) -> None:
 @dp.message(F.photo | F.document | F.sticker | F.video | F.animation | F.video_note)
 async def handle_other_messages(message: types.Message):
     # Обработка других типов сообщений (фото, документы, стикеры и т.д.)
+    logging.info(f'User {message.from_user.username} sent not supported message type {message.content_type}')
     await message.reply(message_templates['en']['not_supported'])
 
 
@@ -351,6 +366,7 @@ async def main() -> None:
     # Initialize Bot instance with a default parse mode which will be passed to all API calls
     bot = Bot(bot_token)
     # And the run events dispatching
+    logging.info("Configuring bot commands...")
     await dp.start_polling(bot)
 
 
