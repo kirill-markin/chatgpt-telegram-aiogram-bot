@@ -24,7 +24,7 @@ Manually edit database to add default users and config.
 
 <!-- TODO: fix the code -->
 ```SQL
-INSERT INTO users (username, role) VALUES ('kirmark', 'premium');
+INSERT INTO users (userid, role) VALUES ('kirmark', 'premium');
 ```
 
 ## add_default_config

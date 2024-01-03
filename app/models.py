@@ -15,26 +15,26 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
-    username = Column(String, unique=True, index=True)
+    userid = Column(String, unique=True, index=True)
     role = Column(String)
     is_allowed = Column(Boolean, default=False)
     tokens_used = Column(Integer, default=0)
     custom_api_key = Column(String)
     messages = relationship('Message', back_populates='user')
 
-def add_user(username, role, is_allowed):
+def add_user(userid, role, is_allowed):
     session = Session()
     
     # Check if user with given name already exists
-    existing_user = session.query(User).filter_by(username=username).first()
+    existing_user = session.query(User).filter_by(userid=userid).first()
     
     if existing_user is None:
-        new_user = User(username=username, role=role, is_allowed=is_allowed)
+        new_user = User(userid=userid, role=role, is_allowed=is_allowed)
         session.add(new_user)
         session.commit()
-        logging.info(f"User {username} added successfully.")
+        logging.info(f"User {userid} added successfully.")
     else:
-        logging.info(f"User {username} already exists.")
+        logging.info(f"User {userid} already exists.")
     
     session.close()
 
@@ -51,7 +51,7 @@ class Message(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     chat_id = Column(String)
-    username = Column(String, ForeignKey('users.username'))
+    userid = Column(String, ForeignKey('users.userid'))
     role = Column(String)
     content = Column(String)
     timestamp = Column(DateTime(timezone=True), server_default=func.now())

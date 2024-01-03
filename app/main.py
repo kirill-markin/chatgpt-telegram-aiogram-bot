@@ -112,9 +112,9 @@ def convert_ogg_to_mp3(ogg_filepath):
     return mp3_filepath
 
 
-def is_user_allowed(username):
+def is_user_allowed(userid):
     session = Session()
-    user = session.query(User).filter_by(username=username).first()
+    user = session.query(User).filter_by(userid=userid).first()
     logging.debug(f'User: {user}')
     if user:
         return user.is_allowed
@@ -123,13 +123,12 @@ def is_user_allowed(username):
 # OpenAI API CALL 
 async def process_message(message,user_messages):
     chat_id = message.chat.id
-    userid = message.from_user.username
-    user_id = message.from_user.id
+    userid = str(message.from_user.id)
     logging.info(f'Processing message from {userid}, chat_id: {chat_id}')
     # Get or create user of database
-    user = session.query(User).filter_by(username=userid).first()
+    user = session.query(User).filter_by(userid=userid).first()
     if not user:
-        user = User(username=userid, role="user", is_allowed=True)
+        user = User(userid=userid, role="user", is_allowed=True)
         session.add(user)
         session.commit()
     # Check if the token limit is exceeded
@@ -145,7 +144,7 @@ async def process_message(message,user_messages):
     logging.debug(f'User message: {user_messages[userid]}')
 
     # Create new message in database for user message
-    new_message = Message(chat_id = str(chat_id), username=userid, role="user", content=user_messages[userid])
+    new_message = Message(chat_id = str(chat_id), userid=userid, role="user", content=user_messages[userid])
     logging.debug(f'New message: {new_message}')
     session.add(new_message)
     session.commit()
@@ -159,7 +158,7 @@ async def process_message(message,user_messages):
     logging.debug(f'Message history: {message_history}')
     message_history = [assistant_prompt] + [{"role": "user", "content": msg.content} for msg in message_history]
     logging.debug('Message history:\n%s', pretty_format_message_history(message_history))
-    user = session.query(User).filter_by(username=userid).first()
+    user = session.query(User).filter_by(userid=userid).first()
 
     # If user has custom api key, use it
     api_key = user.custom_api_key if user.custom_api_key else openai_api_key
@@ -200,7 +199,7 @@ async def process_message(message,user_messages):
 # Voice messages handlers
 @dp.message(F.voice | F.audio)
 async def voice_message_handler(message: types.Message):
-    userid = message.from_user.username
+    userid = str(message.from_user.id)
     logging.info(f'User {userid} sent voice message')
 
     # Check if the user is allowed to use the bot
@@ -213,7 +212,7 @@ async def voice_message_handler(message: types.Message):
     transcripted_text = convert_speech_to_text(mp3_filepath)
     
     user_message = transcripted_text
-    userid = message.from_user.username
+    userid = str(message.from_user.id)
     os.remove(ogg_filepath)
     os.remove(mp3_filepath)
     try:
@@ -241,7 +240,7 @@ async def voice_message_handler(message: types.Message):
 # Slash commands halnders
 @dp.message(Command('start'))
 async def send_welcome(message: types.Message):
-    userid = message.from_user.username
+    userid = str(message.from_user.id)
     logging.info(f'User {userid} started the bot')
     # Check if the user is allowed to use the bot
     if not is_user_allowed(userid):
@@ -249,15 +248,15 @@ async def send_welcome(message: types.Message):
         await message.reply(message_templates['en']['not_allowed'], reply_markup=urlkb)
         return
     
-    username = message.from_user.username
-    messages[username] = []
+    userid = message.from_user.id
+    messages[userid] = []
 
     await message.reply(message_templates['en']['start'])
 
 
 @dp.message(Command('newtopic'))
 async def new_topic_cmd(message: types.Message):
-    userid = message.from_user.username
+    userid = str(message.from_user.id)
     chat_id = message.chat.id
     logging.info(f'User {userid} started new topic')
 
@@ -267,7 +266,7 @@ async def new_topic_cmd(message: types.Message):
         await message.reply(message_templates['en']['not_allowed'], reply_markup=urlkb)
         return
     try:
-        user = session.query(User).filter(User.username == userid).first()
+        user = session.query(User).filter(User.userid == userid).first()
         if user:
             session.query(Message).filter(Message.chat_id == str(chat_id)).delete()
             session.commit()
@@ -278,7 +277,7 @@ async def new_topic_cmd(message: types.Message):
 
 @dp.message(Command('help'))
 async def help_cmd(message: types.Message):
-    userid = message.from_user.username
+    userid = str(message.from_user.id)
     logging.info(f'User {userid} requested help')
 
     # Check if the user is allowed to use the bot
@@ -291,7 +290,7 @@ async def help_cmd(message: types.Message):
 
 @dp.message(Command('about'))
 async def about_cmd(message: types.Message):
-    userid = message.from_user.username
+    userid = str(message.from_user.id)
     logging.info(f'User {userid} requested about')
 
     # Check if the user is allowed to use the bot
@@ -308,7 +307,8 @@ processing_timers = {}
 
 # Processing of user messages (voices and messages)
 async def process_user_message(message):
-    userid = message.from_user.username
+    userid = str(message.from_user.id)
+    logging.info(f'Handling message from user: {userid}')
     if userid in user_messages:
         #message.text = user_messages.pop(userid)
         asyncio.create_task(process_message(message,user_messages))
@@ -319,7 +319,7 @@ async def process_user_message(message):
 # Handling of text messages
 @dp.message(F.text)
 async def echo_msg(message: types.Message) -> None:
-    userid = message.from_user.username
+    userid = str(message.from_user.id)
     logging.info(f'User {userid} sent text message')
     if not is_user_allowed(userid):
         logging.info(f'User {userid} is not allowed')
