@@ -186,7 +186,7 @@ async def process_message(message,user_messages):
         logging.debug(f'ChatGPT response tokens: {chatgpt_response_tokens}')
         user.tokens_used += len(user_message_tokens)
         user.tokens_used += len(chatgpt_response_tokens)
-        # Создаем новое сообщение в базе данных для ответа ассистента
+        # Create new message in database for chatgpt response
         new_message = Message(chat_id=chat_id, role="assistant", content=chatgpt_response)
         session.add(new_message)
         session.commit()
@@ -358,7 +358,7 @@ async def echo_msg(message: types.Message) -> None:
 #Handling all other types of messages
 @dp.message(F.photo | F.document | F.sticker | F.video | F.animation | F.video_note)
 async def handle_other_messages(message: types.Message):
-    # Обработка других типов сообщений (фото, документы, стикеры и т.д.)
+    # Handle all other types of messages
     logging.info(f'User {message.from_user.username} sent not supported message type {message.content_type}')
     await message.reply(message_templates['en']['not_supported'])
 
