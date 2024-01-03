@@ -16,10 +16,11 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     userid = Column(String, unique=True, index=True)
+    username = Column(String, nullable= True, unique=True)
     role = Column(String)
     is_allowed = Column(Boolean, default=False)
     tokens_used = Column(Integer, default=0)
-    custom_api_key = Column(String)
+    custom_api_key = Column(String, nullable= True)
     messages = relationship('Message', back_populates='user')
 
 def add_user(userid, role, is_allowed):
@@ -84,30 +85,5 @@ def add_config(gpt_model, temperature, prompt_assistant, config_id=1):
 
 def create_tables():
     Base.metadata.create_all(bind=engine)
-
-def add_default_users():
-    if not get_all_users():
-        add_user('noodlecode', 'user', True)
-
-def add_default_config():
-    add_config('gpt-4-1106-preview', 0.7, '''Take a deep breath and think aloud step-by-step.
-                                            Act as assistant
-                                            Your name is Donna
-                                            You are female
-                                            You should be friendly
-                                            You should not use official tone
-                                            Your answers should be simple, and laconic but informative
-                                            Before providing an answer check information above one more time
-                                            Try to solve tasks step by step
-                                            I will send you questions or topics to discuss and you will answer me
-                                            You interface right now is a telegram messenger
-                                            Some of messages you will receive from user was transcribed from voice messages.
-                                            If task is too abstract or you see more than one way to solve it or you need more information to solve it - ask me for more information from user.
-                                            It is important to understand what user wants to get from you.
-                                            But don't ask too much questions - it is annoying for user.'''
-               ) 
-
-
-create_tables()
-add_default_users()
-add_default_config()   
+    logging.info("Tables created successfully.")
+create_tables()  

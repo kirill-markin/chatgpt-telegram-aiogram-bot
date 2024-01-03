@@ -160,39 +160,47 @@ async def process_message(message,user_messages):
     logging.debug('Message history:\n%s', pretty_format_message_history(message_history))
     user = session.query(User).filter_by(userid=userid).first()
 
-    # If user has custom api key, use it
-    api_key = user.custom_api_key if user.custom_api_key else openai_api_key
+    try:
+        # If user has custom api key, use it
+        api_key = user.custom_api_key if user.custom_api_key else openai_api_key
 
-    # Use standart api_key
-    openai.api_key = api_key
+        # Use standart api_key
+        openai.api_key = api_key
 
-    client = OpenAI(
-        # This is the default and can be omitted
-        api_key=api_key,
-    )
-    # Call OpenAI API
-    completion =  client.chat.completions.create(
-        model=GPT_MODEL,
-        messages=message_history,
-        max_tokens=2500,
-        temperature=TEMPERATURE,
-        frequency_penalty=0,
-        presence_penalty=0,
-        user=userid,
-    )
-    chatgpt_response = completion.choices[0].message.content
-    chatgpt_response_tokens = encoding.encode(chatgpt_response)
-    logging.debug(f'ChatGPT response tokens: {chatgpt_response_tokens}')
-    user.tokens_used += len(user_message_tokens)
-    user.tokens_used += len(chatgpt_response_tokens)
-    # Создаем новое сообщение в базе данных для ответа ассистента
-    new_message = Message(chat_id=chat_id, role="assistant", content=chatgpt_response)
-    session.add(new_message)
-    session.commit()
-    logging.debug(f'ChatGPT response: {chatgpt_response}')
-    await message.reply(chatgpt_response)
-    await bot.delete_message(chat_id=processing_message.chat.id, message_id=processing_message.message_id)
-    logging.info(f'message from {userid} processed')
+        client = OpenAI(
+            # This is the default and can be omitted
+            api_key=api_key,
+        )
+        # Call OpenAI API
+        completion =  client.chat.completions.create(
+            model=GPT_MODEL,
+            messages=message_history,
+            max_tokens=2500,
+            temperature=TEMPERATURE,
+            frequency_penalty=0,
+            presence_penalty=0,
+            user=userid,
+        )
+        chatgpt_response = completion.choices[0].message.content
+        chatgpt_response_tokens = encoding.encode(chatgpt_response)
+        logging.debug(f'ChatGPT response tokens: {chatgpt_response_tokens}')
+        user.tokens_used += len(user_message_tokens)
+        user.tokens_used += len(chatgpt_response_tokens)
+        # Создаем новое сообщение в базе данных для ответа ассистента
+        new_message = Message(chat_id=chat_id, role="assistant", content=chatgpt_response)
+        session.add(new_message)
+        session.commit()
+        logging.debug(f'ChatGPT response: {chatgpt_response}')
+        await message.reply(chatgpt_response)
+        await bot.delete_message(chat_id=processing_message.chat.id, message_id=processing_message.message_id)
+        logging.info(f'message from {userid} processed')
+    except Exception as ex:
+        if str(ex) == "context_length_exceeded":
+            logging.error(f'Error in process_messages: {ex}')
+            await message.reply(message_templates['en']['too_long'])
+        else:
+            logging.error(f'Error in process_messages: {ex}')
+            await message.reply(message_templates['en']['error'])
 
 
 
@@ -231,10 +239,7 @@ async def voice_message_handler(message: types.Message):
         )
     except Exception as ex:
         logging.error(f'Error in voice_message_handler: {ex}')
-        if str(ex) == "context_length_exceeded":
-            await message.reply(message_templates['en']['error'])
-            await new_topic_cmd(message)
-            await echo_msg(message)
+        await message.reply(message_templates['en']['error'])
 
 
 # Slash commands halnders
@@ -345,10 +350,7 @@ async def echo_msg(message: types.Message) -> None:
         
     except Exception as ex:
         logging.error(f'Error in echo_msg: {ex}')
-        if str(ex) == "context_length_exceeded":
-            await message.reply(message_templates['en']['error'])
-            await new_topic_cmd(message)
-            await echo_msg(message)
+        await message.reply(message_templates['en']['error'])
 
 
 
