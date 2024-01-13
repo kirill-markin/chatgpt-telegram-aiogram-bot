@@ -2,7 +2,7 @@ from sqlalchemy import create_engine, Column, Integer, String, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, declarative_base
 from config import db_url
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Float
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Float, BigInteger
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import logging
@@ -15,7 +15,7 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
-    userid = Column(String, unique=True, index=True)
+    userid = Column(BigInteger, unique=True, index=True)
     username = Column(String, nullable= True, unique=True)
     role = Column(String)
     is_allowed = Column(Boolean, default=False)
@@ -38,6 +38,7 @@ def add_user(userid, role, is_allowed):
         logging.info(f"User {userid} already exists.")
     
     session.close()
+    
 
 
 
@@ -52,7 +53,7 @@ class Message(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     chat_id = Column(String)
-    userid = Column(String, ForeignKey('users.userid'))
+    userid = Column(BigInteger, ForeignKey('users.userid'))
     role = Column(String)
     content = Column(String)
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
@@ -82,6 +83,35 @@ def add_config(gpt_model, temperature, prompt_assistant, config_id=1):
         logging.info(f"Config already exists.")
     
     session.close()
+
+
+class Events(Base):
+    __tablename__ = "events"
+
+    id = Column(Integer, primary_key=True)
+    timestamp = Column(DateTime(timezone=True), server_default=func.now())
+    event_type = Column(String(255), nullable=False)
+
+    user_id = Column(BigInteger)
+    user_is_bot = Column(Boolean)
+    user_language_code = Column(String(255))
+    user_username = Column(String(255))
+
+    chat_id = Column(BigInteger)
+    chat_type = Column(String(255))
+
+    message_role = Column(String(255))
+    messages_type = Column(String(255))
+    message_voice_duration = Column(Integer)
+    message_command = Column(String(255))
+    content_length = Column(Integer)
+
+    usage_model = Column(String(255))
+    usage_object = Column(String(255))
+    usage_completion_tokens = Column(Integer)
+    usage_prompt_tokens = Column(Integer)
+    usage_total_tokens = Column(Integer)
+    api_key = Column(String(255))
 
 def create_tables():
     Base.metadata.create_all(bind=engine)

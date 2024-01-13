@@ -14,7 +14,7 @@ import asyncio
 import tiktoken
 from models import Session
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
-from models import Session, User, Message, Config
+from models import Session, User, Message, Config, Events
 from datetime import datetime, timedelta
 
 
@@ -120,10 +120,25 @@ def is_user_allowed(userid):
         return user.is_allowed
     return False
 
+
+def insert_event(event_data):
+    event = Events(**event_data)
+    event.time = datetime.now()
+    try:
+        session.add(event)
+        session.commit()
+        session.refresh(event)
+        return event
+    except Exception as error:
+        session.rollback()
+        raise error
+    finally:
+        session.close()
+
 # OpenAI API CALL 
 async def process_message(message,user_messages):
     chat_id = message.chat.id
-    userid = str(message.from_user.id)
+    userid = message.from_user.id
     logging.info(f'Processing message from {userid}, chat_id: {chat_id}')
     # Get or create user of database
     user = session.query(User).filter_by(userid=userid).first()
@@ -135,12 +150,12 @@ async def process_message(message,user_messages):
     if user.tokens_used >= 128000:
         user.is_allowed = False
         session.commit()
-        await message.reply("Превышен лимит токенов. Для продолжения использования бота приобретите подписку.")
+        await message.reply("Token limit exceeded. Please contact @kirmark for more information.")
         return
     processing_message = await message.reply(message_templates['en']['processing'])
     encoding = tiktoken.encoding_for_model("gpt-4-1106-prewiev")
     user_message_tokens = encoding.encode(user_messages[userid])
-    logging.debug(f'User message tokens: {user_message_tokens}')
+    logging.debug(f'User message tokens: {len(user_message_tokens)}')
     logging.debug(f'User message: {user_messages[userid]}')
 
     # Create new message in database for user message
@@ -157,6 +172,8 @@ async def process_message(message,user_messages):
     message_history = session.query(Message).filter(Message.chat_id == str(chat_id), Message.timestamp >= permited_hours).all()
     logging.debug(f'Message history: {message_history}')
     message_history = [assistant_prompt] + [{"role": "user", "content": msg.content} for msg in message_history]
+    messages_history_tokens = encoding.encode(' '.join(msg['content'] for msg in message_history))
+    logging.debug(f'Message history tokens: {len(messages_history_tokens)}')
     logging.debug('Message history:\n%s', pretty_format_message_history(message_history))
     user = session.query(User).filter_by(userid=userid).first()
 
@@ -179,12 +196,12 @@ async def process_message(message,user_messages):
             temperature=TEMPERATURE,
             frequency_penalty=0,
             presence_penalty=0,
-            user=userid,
+            user=str(userid),
         )
         chatgpt_response = completion.choices[0].message.content
         chatgpt_response_tokens = encoding.encode(chatgpt_response)
-        logging.debug(f'ChatGPT response tokens: {chatgpt_response_tokens}')
-        user.tokens_used += len(user_message_tokens)
+        logging.debug(f'ChatGPT response tokens: {len(chatgpt_response_tokens)}')
+        user.tokens_used += len(messages_history_tokens)
         user.tokens_used += len(chatgpt_response_tokens)
         # Create new message in database for chatgpt response
         new_message = Message(chat_id=chat_id, role="assistant", content=chatgpt_response)
@@ -207,7 +224,7 @@ async def process_message(message,user_messages):
 # Voice messages handlers
 @dp.message(F.voice | F.audio)
 async def voice_message_handler(message: types.Message):
-    userid = str(message.from_user.id)
+    userid = message.from_user.id
     logging.info(f'User {userid} sent voice message')
 
     # Check if the user is allowed to use the bot
@@ -220,7 +237,7 @@ async def voice_message_handler(message: types.Message):
     transcripted_text = convert_speech_to_text(mp3_filepath)
     
     user_message = transcripted_text
-    userid = str(message.from_user.id)
+    userid = message.from_user.id
     os.remove(ogg_filepath)
     os.remove(mp3_filepath)
     try:
@@ -245,7 +262,7 @@ async def voice_message_handler(message: types.Message):
 # Slash commands halnders
 @dp.message(Command('start'))
 async def send_welcome(message: types.Message):
-    userid = str(message.from_user.id)
+    userid = message.from_user.id
     logging.info(f'User {userid} started the bot')
     # Check if the user is allowed to use the bot
     if not is_user_allowed(userid):
@@ -261,7 +278,7 @@ async def send_welcome(message: types.Message):
 
 @dp.message(Command('newtopic'))
 async def new_topic_cmd(message: types.Message):
-    userid = str(message.from_user.id)
+    userid = message.from_user.id
     chat_id = message.chat.id
     logging.info(f'User {userid} started new topic')
 
@@ -282,7 +299,7 @@ async def new_topic_cmd(message: types.Message):
 
 @dp.message(Command('help'))
 async def help_cmd(message: types.Message):
-    userid = str(message.from_user.id)
+    userid = message.from_user.id
     logging.info(f'User {userid} requested help')
 
     # Check if the user is allowed to use the bot
@@ -295,7 +312,7 @@ async def help_cmd(message: types.Message):
 
 @dp.message(Command('about'))
 async def about_cmd(message: types.Message):
-    userid = str(message.from_user.id)
+    userid = message.from_user.id
     logging.info(f'User {userid} requested about')
 
     # Check if the user is allowed to use the bot
@@ -312,7 +329,7 @@ processing_timers = {}
 
 # Processing of user messages (voices and messages)
 async def process_user_message(message):
-    userid = str(message.from_user.id)
+    userid = message.from_user.id
     logging.info(f'Handling message from user: {userid}')
     if userid in user_messages:
         #message.text = user_messages.pop(userid)
@@ -324,7 +341,7 @@ async def process_user_message(message):
 # Handling of text messages
 @dp.message(F.text)
 async def echo_msg(message: types.Message) -> None:
-    userid = str(message.from_user.id)
+    userid = message.from_user.id
     logging.info(f'User {userid} sent text message')
     if not is_user_allowed(userid):
         logging.info(f'User {userid} is not allowed')
