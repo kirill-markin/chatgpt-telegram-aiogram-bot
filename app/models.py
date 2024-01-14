@@ -113,6 +113,16 @@ class Events(Base):
     usage_total_tokens = Column(Integer)
     api_key = Column(String(255))
 
+class Trial(Base):
+    __tablename__ = "trials"
+
+    id = Column(Integer, primary_key=True)
+    userid = Column(BigInteger, ForeignKey('users.userid'))
+    money_spent = Column(Float, default=0)
+    trial_active = Column(Boolean, default=False)
+    trial_start = Column(DateTime(timezone=True), server_default=func.now())
+
+
 def create_tables():
     Base.metadata.create_all(bind=engine)
     logging.info("Tables created successfully.")

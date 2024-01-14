@@ -14,7 +14,7 @@ import asyncio
 import tiktoken
 from models import Session
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
-from models import Session, User, Message, Config, Events
+from models import Session, User, Message, Config, Events, Trial
 from datetime import datetime, timedelta
 
 
@@ -85,7 +85,9 @@ def generate_unique_name():
     uuid_value = uuid.uuid4()
     return f"{str(uuid_value)}"
 
-def convert_speech_to_text(audio_filepath):
+def convert_speech_to_text(audio_filepath, message):
+    chat_id = message.chat.id
+    userid = message.from_user.id
     client = OpenAI(
     api_key=os.environ.get("OPENAI_API_KEY"),
     )
@@ -95,6 +97,28 @@ def convert_speech_to_text(audio_filepath):
         file = audio_file,
         response_format="text"
         )
+    event_data = {
+        'event_type': 'whisper_transcription',
+        'user_id': userid,
+        'user_is_bot': None,  # Fill in as appropriate
+        'user_language_code': None,  # Fill in as appropriate
+        'user_username': None,  # Fill in as appropriate
+        'chat_id': chat_id,
+        'chat_type': None,  # Fill in as appropriate
+        'message_role': "user",
+        'messages_type': "whisper_transcription",
+        'message_voice_duration': None,
+        'message_command': None,
+        'content_length': None,
+        'usage_model': "whisper-1",  # Fill in as appropriate
+        'usage_object': None,  # Fill in as appropriate
+        'usage_completion_tokens': None,
+        'usage_prompt_tokens': None,  # Fill in as appropriate
+        'usage_total_tokens': None,
+        'api_key': None,  # Fill in as appropriate
+        }
+
+    insert_event(event_data)
     logging.debug(f'Transcript: {transcript}')
     return transcript
 
@@ -115,10 +139,29 @@ def convert_ogg_to_mp3(ogg_filepath):
 def is_user_allowed(userid):
     session = Session()
     user = session.query(User).filter_by(userid=userid).first()
+    user_trial = session.query(Trial).filter_by(userid=userid).first()
+    if user_trial is None:
+        # Start a new trial for the user
+        user_trial = Trial(userid=userid, trial_active=True, trial_start=datetime.now())
+        session.add(user_trial)
+        session.commit()
+        return False
+    if user_trial.money_spent > 0 or user_trial.trial_active:
+        return True
+    
     logging.debug(f'User: {user}')
     if user:
         return user.is_allowed
     return False
+
+def trial_is_active(userid):
+    session = Session()
+    user_trial = session.query(Trial).filter_by(userid=userid).first()
+    #check if user spent 3 dollars. If he spent 3 dollars, make trial not active. Also check if trial is active
+    if user_trial.money_spent >= 3 or user_trial.trial_active == False:
+        return False
+    return False
+
 
 
 def insert_event(event_data):
@@ -131,9 +174,8 @@ def insert_event(event_data):
         return event
     except Exception as error:
         session.rollback()
-        raise error
-    finally:
-        session.close()
+        logging.error(f'Error in insert_event: {error}')
+        
 
 # OpenAI API CALL 
 async def process_message(message,user_messages):
@@ -163,6 +205,31 @@ async def process_message(message,user_messages):
     logging.debug(f'New message: {new_message}')
     session.add(new_message)
     session.commit()
+
+    event_data = {
+        'event_type': 'assistant_message',
+        'user_id': userid,
+        'user_is_bot': None,  # Fill in as appropriate
+        'user_language_code': None,  # Fill in as appropriate
+        'user_username': None,  # Fill in as appropriate
+        'chat_id': chat_id,
+        'chat_type': None,  # Fill in as appropriate
+        'message_role': "user",
+        'messages_type': "text",
+        'message_voice_duration': None,
+        'message_command': None,
+        'content_length': len(user_messages[userid]),
+        'usage_model': None,  # Fill in as appropriate
+        'usage_object': None,  # Fill in as appropriate
+        'usage_completion_tokens': None,
+        'usage_prompt_tokens': None,  # Fill in as appropriate
+        'usage_total_tokens': None,
+        'api_key': None,  # Fill in as appropriate
+    }
+
+    insert_event(event_data)
+    logging.debug(f'Event inserted: {event_data}')
+
     assistant_prompt = {
         "role": "system",  # System role for setting up the context
         "content": PROMPT_ASSISTANT
@@ -202,7 +269,59 @@ async def process_message(message,user_messages):
         chatgpt_response_tokens = encoding.encode(chatgpt_response)
         logging.debug(f'ChatGPT response tokens: {len(chatgpt_response_tokens)}')
         user.tokens_used += len(messages_history_tokens)
+
+        event_data = {
+        'event_type': 'user_messages_history_response',
+        'user_id': userid,
+        'user_is_bot': None,  # Fill in as appropriate
+        'user_language_code': None,  # Fill in as appropriate
+        'user_username': None,  # Fill in as appropriate
+        'chat_id': chat_id,
+        'chat_type': None,  # Fill in as appropriate
+        'message_role': "user",
+        'messages_type': "message_history",
+        'message_voice_duration': None,
+        'message_command': None,
+        'content_length': len(user_messages[userid]),
+        'usage_model': GPT_MODEL,  # Fill in as appropriate
+        'usage_object': None,  # Fill in as appropriate
+        'usage_completion_tokens': None,
+        'usage_prompt_tokens': len(messages_history_tokens),  # Fill in as appropriate
+        'usage_total_tokens': None,
+        'api_key': api_key,  # Fill in as appropriate
+    }
+
+        insert_event(event_data)
+
+        logging.debug(f'Event inserted: {event_data}')
+
+
         user.tokens_used += len(chatgpt_response_tokens)
+        
+        event_data = {
+        'event_type': 'completion_response',
+        'user_id': userid,
+        'user_is_bot': None,  # Fill in as appropriate
+        'user_language_code': None,  # Fill in as appropriate
+        'user_username': None,  # Fill in as appropriate
+        'chat_id': chat_id,
+        'chat_type': None,  # Fill in as appropriate
+        'message_role': "user",
+        'messages_type': "chatgpt_completion",
+        'message_voice_duration': None,
+        'message_command': None,
+        'content_length': len(user_messages[userid]),
+        'usage_model': GPT_MODEL,  # Fill in as appropriate
+        'usage_object': None,  # Fill in as appropriate
+        'usage_completion_tokens': len(chatgpt_response_tokens),
+        'usage_prompt_tokens': None,  # Fill in as appropriate
+        'usage_total_tokens': None,
+        'api_key': None,  # Fill in as appropriate
+        }
+
+        insert_event(event_data)
+
+        logging.debug(f'Event inserted: {event_data}')
         # Create new message in database for chatgpt response
         new_message = Message(chat_id=chat_id, role="assistant", content=chatgpt_response)
         session.add(new_message)
@@ -234,6 +353,36 @@ async def voice_message_handler(message: types.Message):
         return
     ogg_filepath = await download_voice_as_ogg(message.voice)
     mp3_filepath = convert_ogg_to_mp3(ogg_filepath)
+    #count the lenght of the audio file
+    audio = pydub.AudioSegment.from_file(mp3_filepath, format="mp3")
+    duration = len(audio) / 1000
+    logging.debug(f'Voice message duration: {duration}')
+
+    event_data = {
+        'event_type': 'audio_message',
+        'user_id': userid,
+        'user_is_bot': None,  # Fill in as appropriate
+        'user_language_code': None,  # Fill in as appropriate
+        'user_username': message.from_user.username,  # Fill in as appropriate
+        'chat_id': message.chat.id,
+        'chat_type': None,  # Fill in as appropriate
+        'message_role': "user",
+        'messages_type': "audio_message",
+        'message_voice_duration': duration,
+        'message_command': None,
+        'content_length': None,
+        'usage_model': None,  # Fill in as appropriate
+        'usage_object': None,  # Fill in as appropriate
+        'usage_completion_tokens': None,
+        'usage_prompt_tokens': None,  # Fill in as appropriate
+        'usage_total_tokens': None,
+        'api_key': None,  # Fill in as appropriate
+        }
+
+    insert_event(event_data)
+
+    logging.debug(f'Event inserted: {event_data}')
+    
     transcripted_text = convert_speech_to_text(mp3_filepath)
     
     user_message = transcripted_text
