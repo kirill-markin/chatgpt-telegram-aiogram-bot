@@ -67,7 +67,7 @@ TEMPERATURE = config.temperature
 PROMPT_ASSISTANT = config.prompt_assistant
 permited_hours = datetime.now() - timedelta(hours=hours_for_messages)
 
-def pretty_format_message_history(message_history):
+async def pretty_format_message_history(message_history):
     # Create a custom formatter for the message history
     formatted_history = []
     for message in message_history:
@@ -76,16 +76,29 @@ def pretty_format_message_history(message_history):
     return json.dumps(formatted_history, indent=4)
 
 #Voice messages processors(voice to text, download, convert to mp3)
-def create_dir_if_not_exists(dir):
+async def create_dir_if_not_exists(dir):
     if (not os.path.exists(dir)):
         os.mkdir(dir)
 
 
-def generate_unique_name():
+async def insert_event(event_data):
+    event = Events(**event_data)
+    event.time = datetime.now()
+    try:
+        session.add(event)
+        session.commit()
+        session.refresh(event)
+        return event
+    except Exception as error:
+        session.rollback()
+        logging.error(f'Error in insert_event: {error}')
+
+
+async def generate_unique_name():
     uuid_value = uuid.uuid4()
     return f"{str(uuid_value)}"
 
-def convert_speech_to_text(audio_filepath, message):
+async def convert_speech_to_text(audio_filepath, message):
     chat_id = message.chat.id
     userid = message.from_user.id
     client = OpenAI(
@@ -118,7 +131,7 @@ def convert_speech_to_text(audio_filepath, message):
         'api_key': None,  # Fill in as appropriate
         }
 
-    insert_event(event_data)
+    await insert_event(event_data)
     logging.debug(f'Transcript: {transcript}')
     return transcript
 
@@ -136,45 +149,43 @@ def convert_ogg_to_mp3(ogg_filepath):
     return mp3_filepath
 
 
-def is_user_allowed(userid):
+async def is_user_allowed(userid):
     session = Session()
     user = session.query(User).filter_by(userid=userid).first()
-    user_trial = session.query(Trial).filter_by(userid=userid).first()
-    if user_trial is None:
-        # Start a new trial for the user
-        user_trial = Trial(userid=userid, trial_active=True, trial_start=datetime.now())
-        session.add(user_trial)
-        session.commit()
-        return False
-    if user_trial.money_spent > 0 or user_trial.trial_active:
-        return True
-    
     logging.debug(f'User: {user}')
     if user:
         return user.is_allowed
     return False
 
-def trial_is_active(userid):
+async def is_user_premium(user:User) -> bool:
+    return user.role == 'premium'
+
+
+
+async def trial_is_active(userid,message):
     session = Session()
     user_trial = session.query(Trial).filter_by(userid=userid).first()
+    if user_trial is None:
+        # Start a new trial for the user
+        await start_new_trial(userid,message)
+        return True
+    if user_trial.money_spent >= 0 and user_trial.trial_active:
+        return True
     #check if user spent 3 dollars. If he spent 3 dollars, make trial not active. Also check if trial is active
     if user_trial.money_spent >= 3 or user_trial.trial_active == False:
+        user_trial.trial_active = False
+        await message.reply(message_templates['en']['trial_ended'], reply_markup=urlkb)
         return False
+        
     return False
 
+async def start_new_trial(userid, message):
+    user_trial = Trial(userid=userid, trial_active=True, trial_start=datetime.now())
+    session.add(user_trial)
+    session.commit()
+    logging.info(f'Trial started for user {userid}')
+    await message.reply(message_templates['en']['starting_trial'])
 
-
-def insert_event(event_data):
-    event = Events(**event_data)
-    event.time = datetime.now()
-    try:
-        session.add(event)
-        session.commit()
-        session.refresh(event)
-        return event
-    except Exception as error:
-        session.rollback()
-        logging.error(f'Error in insert_event: {error}')
         
 
 # OpenAI API CALL 
@@ -184,6 +195,7 @@ async def process_message(message,user_messages):
     logging.info(f'Processing message from {userid}, chat_id: {chat_id}')
     # Get or create user of database
     user = session.query(User).filter_by(userid=userid).first()
+    user_trial = session.query(Trial).filter_by(userid=userid).first()
     if not user:
         user = User(userid=userid, role="user", is_allowed=True)
         session.add(user)
@@ -193,6 +205,9 @@ async def process_message(message,user_messages):
         user.is_allowed = False
         session.commit()
         await message.reply("Token limit exceeded. Please contact @kirmark for more information.")
+        return
+    if not await trial_is_active(userid,message):
+        await message.reply(message_templates['en']['trial_ended'], reply_markup=urlkb)
         return
     processing_message = await message.reply(message_templates['en']['processing'])
     encoding = tiktoken.encoding_for_model("gpt-4-1106-prewiev")
@@ -227,7 +242,7 @@ async def process_message(message,user_messages):
         'api_key': None,  # Fill in as appropriate
     }
 
-    insert_event(event_data)
+    await insert_event(event_data)
     logging.debug(f'Event inserted: {event_data}')
 
     assistant_prompt = {
@@ -269,6 +284,10 @@ async def process_message(message,user_messages):
         chatgpt_response_tokens = encoding.encode(chatgpt_response)
         logging.debug(f'ChatGPT response tokens: {len(chatgpt_response_tokens)}')
         user.tokens_used += len(messages_history_tokens)
+        #count money spent: $0.01 / 1K tokens
+        logging.debug(f'User money spent: {user_trial.money_spent}')
+        user_trial.money_spent += len(messages_history_tokens) / 1000 * 0.01
+        logging.debug(f'User money spent: {user_trial.money_spent}')
 
         event_data = {
         'event_type': 'user_messages_history_response',
@@ -291,12 +310,13 @@ async def process_message(message,user_messages):
         'api_key': api_key,  # Fill in as appropriate
     }
 
-        insert_event(event_data)
+        await insert_event(event_data)
 
         logging.debug(f'Event inserted: {event_data}')
 
 
         user.tokens_used += len(chatgpt_response_tokens)
+        user_trial.money_spent += len(chatgpt_response_tokens) / 1000 * 0.03
         
         event_data = {
         'event_type': 'completion_response',
@@ -319,7 +339,7 @@ async def process_message(message,user_messages):
         'api_key': None,  # Fill in as appropriate
         }
 
-        insert_event(event_data)
+        await insert_event(event_data)
 
         logging.debug(f'Event inserted: {event_data}')
         # Create new message in database for chatgpt response
@@ -345,6 +365,11 @@ async def process_message(message,user_messages):
 async def voice_message_handler(message: types.Message):
     userid = message.from_user.id
     logging.info(f'User {userid} sent voice message')
+    user = session.query(User).filter_by(userid=userid).first()
+    if not user:
+        user = User(userid=userid, role="user", is_allowed=True)
+        session.add(user)
+        session.commit()
 
     # Check if the user is allowed to use the bot
     if not is_user_allowed(userid):
@@ -379,11 +404,14 @@ async def voice_message_handler(message: types.Message):
         'api_key': None,  # Fill in as appropriate
         }
 
-    insert_event(event_data)
+    await insert_event(event_data)
+    user_trial = session.query(Trial).filter_by(userid=userid).first()
+    #$0.006 / minute (rounded to the nearest second)
+    user_trial.money_spent += duration / 60 * 0.006
 
     logging.debug(f'Event inserted: {event_data}')
     
-    transcripted_text = convert_speech_to_text(mp3_filepath)
+    transcripted_text = convert_speech_to_text(mp3_filepath,message)
     
     user_message = transcripted_text
     userid = message.from_user.id
@@ -412,8 +440,15 @@ async def voice_message_handler(message: types.Message):
 @dp.message(Command('start'))
 async def send_welcome(message: types.Message):
     userid = message.from_user.id
+    user = session.query(User).filter_by(userid=message.from_user.id).first()
+
     logging.info(f'User {userid} started the bot')
+    
     # Check if the user is allowed to use the bot
+    if not user:
+        user = User(userid=userid, role="user", is_allowed=True)
+        session.add(user)
+        session.commit()
     if not is_user_allowed(userid):
         logging.info(f'User {userid} is not allowed')
         await message.reply(message_templates['en']['not_allowed'], reply_markup=urlkb)
@@ -490,8 +525,13 @@ async def process_user_message(message):
 # Handling of text messages
 @dp.message(F.text)
 async def echo_msg(message: types.Message) -> None:
+    user = session.query(User).filter_by(userid=message.from_user.id).first()
     userid = message.from_user.id
     logging.info(f'User {userid} sent text message')
+    if not user:
+        user = User(userid=userid, role="user", is_allowed=True)
+        session.add(user)
+        session.commit()
     if not is_user_allowed(userid):
         logging.info(f'User {userid} is not allowed')
         await message.reply(message_templates['en']['not_allowed'], reply_markup=urlkb)
