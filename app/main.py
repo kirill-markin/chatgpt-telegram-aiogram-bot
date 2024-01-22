@@ -62,9 +62,16 @@ async def setup_bot_commands(dp):
 #Assistant prompt for GPT
 config = session.query(Config).filter_by(id=1).first()
 
-GPT_MODEL = config.gpt_model
-TEMPERATURE = config.temperature
-PROMPT_ASSISTANT = config.prompt_assistant
+try:
+    GPT_MODEL = config.gpt_model
+    TEMPERATURE = config.temperature
+    PROMPT_ASSISTANT = config.prompt_assistant
+except Exception as e:
+    logging.error(f'There is no config in database. Using default values. Error: {e}')
+    GPT_MODEL = "gpt-4-1106-preview"
+    TEMPERATURE = 0.7
+    PROMPT_ASSISTANT = "The following is a conversation with an AI assistant. The assistant is helpful, creative, clever, and very friendly. It is based on GPT-3 technology. The assistant is very good at answering questions and helping you with your tasks. The assistant is very good at answerin"
+
 permited_hours = datetime.now() - timedelta(hours=hours_for_messages)
 
 async def pretty_format_message_history(message_history):
