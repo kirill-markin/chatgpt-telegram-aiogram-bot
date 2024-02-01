@@ -67,7 +67,7 @@ TEMPERATURE = config.temperature
 PROMPT_ASSISTANT = config.prompt_assistant
 permited_hours = datetime.now() - timedelta(hours=hours_for_messages)
 
-async def pretty_format_message_history(message_history):
+def pretty_format_message_history(message_history):
     # Create a custom formatter for the message history
     formatted_history = []
     for message in message_history:
@@ -149,7 +149,7 @@ def convert_ogg_to_mp3(ogg_filepath):
     return mp3_filepath
 
 
-async def is_user_allowed(userid):
+def is_user_allowed(userid):
     session = Session()
     user = session.query(User).filter_by(userid=userid).first()
     logging.debug(f'User: {user}')
@@ -180,7 +180,7 @@ async def trial_is_active(userid,message):
     return False
 
 async def start_new_trial(userid, message):
-    user_trial = Trial(userid=userid, trial_active=True, trial_start=datetime.now())
+    user_trial = Trial(userid=userid, trial_active=True, money_spent= 0.0001, trial_start=datetime.now())
     session.add(user_trial)
     session.commit()
     logging.info(f'Trial started for user {userid}')
@@ -285,9 +285,12 @@ async def process_message(message,user_messages):
         logging.debug(f'ChatGPT response tokens: {len(chatgpt_response_tokens)}')
         user.tokens_used += len(messages_history_tokens)
         #count money spent: $0.01 / 1K tokens
-        logging.debug(f'User money spent: {user_trial.money_spent}')
+        #logging.debug(f'User money spent: {user_trial.money_spent}')
+
+        user_trial = session.query(Trial).filter_by(userid=userid).first()
+        logging.info(f'User money spent: {user_trial.money_spent}')
         user_trial.money_spent += len(messages_history_tokens) / 1000 * 0.01
-        logging.debug(f'User money spent: {user_trial.money_spent}')
+        #logging.debug(f'User money spent: {user_trial.money_spent}')
 
         event_data = {
         'event_type': 'user_messages_history_response',
