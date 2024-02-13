@@ -98,7 +98,7 @@ async def generate_unique_name():
     uuid_value = uuid.uuid4()
     return f"{str(uuid_value)}"
 
-async def convert_speech_to_text(audio_filepath, message):
+def convert_speech_to_text(audio_filepath, message):
     chat_id = message.chat.id
     userid = message.from_user.id
     client = OpenAI(
@@ -131,7 +131,7 @@ async def convert_speech_to_text(audio_filepath, message):
         'api_key': None,  # Fill in as appropriate
         }
 
-    await insert_event(event_data)
+    insert_event(event_data)
     logging.debug(f'Transcript: {transcript}')
     return transcript
 
